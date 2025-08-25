@@ -2,7 +2,7 @@ import { Emitter } from '@utils/emitter';
 
 type AuthOptions = {
   clientId: string;
-  redirectUri: string; // Should be the app base, e.g. https://.../dwdw/ or http://127.0.0.1:5173/
+  redirectUri: string;
   scopes: string[];
 };
 
@@ -66,7 +66,6 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     const challenge = await this.generateCodeChallenge(verifier);
     const state = crypto.randomUUID();
 
-    // Store in both session and local to be resilient across some browser flows
     sessionStorage.setItem(this.verifierKey, verifier);
     sessionStorage.setItem(this.stateKey, state);
     localStorage.setItem(this.verifierKey, verifier);
@@ -90,18 +89,31 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     this.emit('tokens', null);
   }
 
-  // Returns true if handled an OAuth response, false otherwise. Never throws on normal app loads.
+  // Returns true if handled an OAuth response (either query or hash), never throws during normal loads.
   async handleRedirectCallback(): Promise<boolean> {
     const url = new URL(location.href);
-    const params = url.searchParams;
+    let params: URLSearchParams | null = null;
 
-    const hasAuthParams = params.has('code') || params.has('state') || params.has('error');
-    if (!hasAuthParams) return false;
+    // Prefer query params
+    if (url.search.length > 1) {
+      params = url.searchParams;
+    } else if (url.hash.startsWith('#/callback')) {
+      // Support hash route callback like "#/callback?code=...&state=..."
+      const qIndex = url.hash.indexOf('?');
+      if (qIndex !== -1) {
+        params = new URLSearchParams(url.hash.slice(qIndex + 1));
+      } else {
+        params = new URLSearchParams();
+      }
+    }
+
+    if (!params) return false;
 
     const error = params.get('error');
     if (error) {
       console.warn('OAuth error:', error, params.get('error_description') || '');
       this.cleanAuthParams(url);
+      this.cleanCallbackHash(url);
       return false;
     }
 
@@ -112,7 +124,8 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
 
     if (!code || !state || !verifier || state !== storedState) {
       console.warn('Invalid OAuth callback (missing/mismatched params).');
-      this.cleanAuthParams(url); // clean up and let user try again
+      this.cleanAuthParams(url);
+      this.cleanCallbackHash(url);
       return false;
     }
 
@@ -130,8 +143,12 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       body
     });
     if (!resp.ok) {
-      console.error('Token exchange failed:', await resp.text());
+      try {
+        const t = await resp.text();
+        console.error('Token exchange failed:', t);
+      } catch {}
       this.cleanAuthParams(url);
+      this.cleanCallbackHash(url);
       return false;
     }
     const data = (await resp.json()) as TokenResponse;
@@ -145,14 +162,13 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     localStorage.setItem(this.tokensKey, JSON.stringify(this.tokens));
     this.emit('tokens', this.tokens);
 
-    // Cleanup verifier/state from both storages
     sessionStorage.removeItem(this.verifierKey);
     sessionStorage.removeItem(this.stateKey);
     localStorage.removeItem(this.verifierKey);
     localStorage.removeItem(this.stateKey);
 
-    // Clean URL (remove ?code&state&error) but keep any hash
     this.cleanAuthParams(url);
+    this.cleanCallbackHash(url);
     return true;
   }
 
@@ -162,6 +178,14 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     clean.searchParams.delete('state');
     clean.searchParams.delete('error');
     history.replaceState({}, '', clean.toString());
+  }
+
+  private cleanCallbackHash(url: URL) {
+    if (url.hash.startsWith('#/callback')) {
+      const clean = new URL(url.toString());
+      clean.hash = '#/';
+      history.replaceState({}, '', clean.toString());
+    }
   }
 
   async refresh(): Promise<void> {

@@ -47,7 +47,6 @@ export class UI {
 
   private ensureAuthed(): boolean {
     if (!this.auth.getAccessToken()) {
-      // Optionally surface a hint to the user here
       console.debug('Action requires login.');
       return false;
     }
@@ -56,13 +55,11 @@ export class UI {
 
   private startDevicePolling() {
     if (this.devicePoll !== null) return;
-
     const refreshDevices = async () => {
       if (!this.auth.getAccessToken()) return;
       try {
         const devices = await this.api.getDevices();
         if (!this.els.devpick) return;
-
         this.els.devpick.innerHTML = '';
         for (const d of devices) {
           const opt = document.createElement('option');
@@ -72,11 +69,9 @@ export class UI {
           if (d.is_active && d.id) this.els.devpick.value = d.id;
         }
       } catch {
-        // Avoid noisy logs; device polling can fail transiently
+        // ignore transient errors
       }
     };
-
-    // Initial fetch + periodic refresh
     refreshDevices();
     this.devicePoll = window.setInterval(refreshDevices, 5000);
   }
@@ -90,7 +85,6 @@ export class UI {
   }
 
   init() {
-    // Auth/UI controls
     if (this.els.login) this.els.login.onclick = () => this.auth.login();
     if (this.els.logout) this.els.logout.onclick = () => this.auth.logout();
     if (this.els.fullscreen)
@@ -99,61 +93,92 @@ export class UI {
         else document.exitFullscreen();
       };
 
-    // Transport controls (guarded)
     if (this.els.play)
       this.els.play.onclick = async () => {
         if (!this.ensureAuthed()) return;
-        await this.player.ensureActiveDevice();
-        await this.player.resume();
+        try {
+          await this.player.ensureActiveDevice();
+          await this.player.resume();
+        } catch (e: any) {
+          console.debug('Play failed:', e?.message || e);
+        }
       };
+
     if (this.els.pause)
       this.els.pause.onclick = async () => {
         if (!this.ensureAuthed()) return;
-        await this.player.pause();
+        try {
+          await this.player.pause();
+        } catch (e: any) {
+          // 403 is common when not permitted or nothing to pause; suppress noise
+          if (e?.status !== 403) console.debug('Pause failed:', e?.message || e);
+        }
       };
+
     if (this.els.prev)
       this.els.prev.onclick = async () => {
         if (!this.ensureAuthed()) return;
-        await this.player.previous();
+        try {
+          await this.player.previous();
+        } catch (e: any) {
+          console.debug('Previous failed:', e?.message || e);
+        }
       };
+
     if (this.els.next)
       this.els.next.onclick = async () => {
         if (!this.ensureAuthed()) return;
-        await this.player.next();
+        try {
+          await this.player.next();
+        } catch (e: any) {
+          console.debug('Next failed:', e?.message || e);
+        }
       };
 
     if (this.els.seek)
       this.els.seek.oninput = async () => {
         if (!this.ensureAuthed()) return;
-        const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
-        if (pb?.item?.duration_ms) {
-          const ms = (Number(this.els.seek!.value) / 1000) * pb.item.duration_ms;
-          await this.player.seek(ms);
-          // Update aria-valuetext for assistive tech
-          this.els.seek!.setAttribute(
-            'aria-valuetext',
-            `${formatTime(pb.progress_ms || 0)} of ${formatTime(pb.item.duration_ms)}`
-          );
+        try {
+          await this.player.ensureActiveDevice();
+          const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
+          if (pb?.item?.duration_ms && typeof pb.progress_ms === 'number') {
+            const ms = (Number(this.els.seek!.value) / 1000) * pb.item.duration_ms;
+            await this.player.seek(ms);
+            this.els.seek!.setAttribute(
+              'aria-valuetext',
+              `${formatTime(ms)} of ${formatTime(pb.item.duration_ms)}`
+            );
+          }
+        } catch (e: any) {
+          // 404 = no active device or nothing playing; ignore
+          if (e?.status !== 404) console.debug('Seek failed:', e?.message || e);
         }
       };
 
     if (this.els.volume)
       this.els.volume.oninput = async () => {
         if (!this.ensureAuthed()) return;
-        await this.player.setVolume(Number(this.els.volume!.value));
-        // Announce volume to assistive tech
-        this.els.volume!.setAttribute('aria-valuetext', `${this.els.volume!.value} percent`);
+        try {
+          await this.player.setVolume(Number(this.els.volume!.value));
+          this.els.volume!.setAttribute('aria-valuetext', `${this.els.volume!.value} percent`);
+        } catch (e: any) {
+          console.debug('Volume failed:', e?.message || e);
+        }
       };
 
-    // Device picker
     if (this.els.devpick)
       this.els.devpick.onchange = async () => {
         if (!this.ensureAuthed()) return;
         const id = this.els.devpick!.value;
-        if (id) await this.api.transferPlayback(id, true);
+        if (id) {
+          try {
+            await this.api.transferPlayback(id, true);
+          } catch (e: any) {
+            console.debug('Transfer playback failed:', e?.message || e);
+          }
+        }
       };
 
-    // Visual scene controls
     if (this.els.sceneSelect)
       this.els.sceneSelect.onchange = () => {
         const scene = this.els.sceneSelect!.value;
@@ -165,12 +190,10 @@ export class UI {
     if (this.els.quality) this.els.quality.onclick = () => this.director.toggleQualityPanel();
     if (this.els.acc) this.els.acc.onclick = () => this.director.toggleAccessibilityPanel();
 
-    // FPS label from director
     this.director.on('fps', (fps) => {
       if (this.els.fpsLabel) this.els.fpsLabel.textContent = `FPS: ${Math.round(fps)}`;
     });
 
-    // React to login/logout to toggle UI and start/stop device polling
     this.auth.on('tokens', (tokens) => {
       if (tokens) {
         if (this.els.login) this.els.login.classList.add('hidden');
@@ -180,7 +203,6 @@ export class UI {
         if (this.els.login) this.els.login.classList.remove('hidden');
         if (this.els.logout) this.els.logout.classList.add('hidden');
         if (this.els.userLabel) this.els.userLabel.textContent = '';
-        // Reset playback UI on logout
         if (this.els.timeLabel) this.els.timeLabel.textContent = '0:00 / 0:00';
         if (this.els.seek) this.els.seek.value = '0';
         if (this.els.play) this.els.play.classList.remove('hidden');
@@ -191,7 +213,6 @@ export class UI {
   }
 
   async postLogin() {
-    // Called only after we have tokens
     if (!this.auth.getAccessToken()) return;
     try {
       const me = await this.api.me();
@@ -199,8 +220,6 @@ export class UI {
     } catch (e) {
       console.debug('Failed to fetch profile:', e);
     }
-
-    // Kick device polling (idempotent) and an initial playback update
     this.startDevicePolling();
     try {
       const pb = await this.api.getCurrentPlaybackCached();
@@ -231,14 +250,11 @@ export class UI {
     const track = pb.item as SpotifyApi.TrackObjectFull;
     const dur = track.duration_ms || 0;
     const cur = pb.progress_ms || 0;
-
     if (this.els.timeLabel) this.els.timeLabel.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
-
     if (this.els.seek) {
       this.els.seek.value = String(Math.round((1000 * cur) / Math.max(1, dur)));
       this.els.seek.setAttribute('aria-valuetext', `${formatTime(cur)} of ${formatTime(dur)}`);
     }
-
     if (pb.is_playing) {
       if (this.els.play) this.els.play.classList.add('hidden');
       if (this.els.pause) this.els.pause.classList.remove('hidden');

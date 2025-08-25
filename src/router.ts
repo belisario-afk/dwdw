@@ -1,10 +1,18 @@
 export function ensureRoute() {
-  if (!location.hash) {
-    if (location.pathname.endsWith('/callback')) {
-      // handled by main.ts after callback forwarder
-    } else {
-      location.hash = '#/';
-    }
+  // Normalize empty hash to "#/"
+  if (!location.hash || location.hash === '#') {
+    history.replaceState({}, '', location.pathname + location.search + '#/');
+    return;
   }
-  window.addEventListener('popstate', () => {});
+  // If the OAuth flow dropped us on "#/callback?...",
+  // normalize back to "#/" — pkce.ts will already have handled code/state.
+  if (location.hash.startsWith('#/callback')) {
+    const clean = new URL(location.href);
+    clean.hash = '#/';
+    // also strip any code/state leftover in search
+    clean.searchParams.delete('code');
+    clean.searchParams.delete('state');
+    clean.searchParams.delete('error');
+    history.replaceState({}, '', clean.toString());
+  }
 }
