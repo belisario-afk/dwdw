@@ -1,28 +1,30 @@
 import { defineConfig } from 'vite';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   base: '/dwdw/',
+  plugins: [
+    // Reads "paths" from tsconfig.json for Vite/Rollup resolution
+    tsconfigPaths()
+  ],
   resolve: {
+    // Explicit aliases as a fallback so builds work even if tsconfig changes
     alias: {
-      '@auth': path.resolve(__dirname, 'src/auth'),
-      '@spotify': path.resolve(__dirname, 'src/spotify'),
-      '@audio': path.resolve(__dirname, 'src/audio'),
-      '@visuals': path.resolve(__dirname, 'src/visuals'),
-      '@controllers': path.resolve(__dirname, 'src/controllers'),
-      '@ui': path.resolve(__dirname, 'src/ui'),
-      '@utils': path.resolve(__dirname, 'src/utils'),
-    },
+      '@auth': path.resolve(process.cwd(), 'src/auth'),
+      '@spotify': path.resolve(process.cwd(), 'src/spotify'),
+      '@audio': path.resolve(process.cwd(), 'src/audio'),
+      '@visuals': path.resolve(process.cwd(), 'src/visuals'),
+      '@controllers': path.resolve(process.cwd(), 'src/controllers'),
+      '@ui': path.resolve(process.cwd(), 'src/ui'),
+      '@utils': path.resolve(process.cwd(), 'src/utils')
+    }
   },
   server: {
     host: '127.0.0.1',
-    port: 5173,
+    port: 5173
   },
   build: {
-    target: 'es2020',
-  },
+    target: 'es2020'
+  }
 });
