@@ -47,10 +47,20 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   // Expose for quick console testing: window.director.requestScene('Emo Slashes')
   (window as any).director = director;
 
+  // Collector image for Emo Slashes:
+  // Put your PNG in public/assets/ (recommended name: demon-slayer-hero.png to avoid spaces)
+  // These two calls are safe: the first one wins if it exists; otherwise the second tries the original filename.
+  director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
+  director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
+  // Optional: separate background image (JPEG/wallpaper). If not set, the PNG is used for a blurred/dim BG.
+  // director.setEmoBackgroundImage(`${import.meta.env.BASE_URL}assets/demon-slayer-bg.jpg`);
+  // Optional: start on the scene to preview
+  // director.requestScene('Emo Slashes');
+
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Wire scene picker and a few top‑level buttons so new scenes are selectable immediately from UI
+  // Wire scene picker and top‑level controls
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {

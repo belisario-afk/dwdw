@@ -212,6 +212,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private emoRipples: EmoRipple[] = [];
   private emoGlow = 0;
 
+  // NEW: Emo Slashes "collector" image support
+  private emoBgImg: HTMLImageElement | null = null;     // Background (cover-fit, blurred/dim)
+  private emoHeroImg: HTMLImageElement | null = null;   // Foreground transparent PNG (e.g., Demon Slayer)
+  private emoHeroScale = 0.65;                          // Relative to min(w, h)
+  private emoHeroTilt = 0;                              // radians
+  private emoHeroTiltVel = 0;                           // radians/sec
+  private emoHeroGleam = 1;                             // 0..1 progress of gleam sweep (1 = idle)
+  private emoHeroPulse = 0;                             // 0..1 glow boost
+
   constructor(private api: SpotifyAPI) {
     super();
 
@@ -315,6 +324,28 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.flowImageCtx = null;
       // Recolor Voronoi with palette
       this.sgLastW = 0; this.sgLastH = 0;
+    }
+  }
+
+  // NEW: Emo Slashes collector image hooks
+  // Call this with your PNG URL, e.g. director.setEmoHeroImage('assets/Demon-Slayer-PNG-Pic.png')
+  async setEmoHeroImage(url: string | null) {
+    if (!url) { this.emoHeroImg = null; return; }
+    try {
+      this.emoHeroImg = await loadImage(url);
+      // If no explicit background provided, default to using this image as background too
+      if (!this.emoBgImg) this.emoBgImg = this.emoHeroImg;
+    } catch {
+      this.emoHeroImg = null;
+    }
+  }
+  // Optional separate background (e.g., wallpaper)
+  async setEmoBackgroundImage(url: string | null) {
+    if (!url) { this.emoBgImg = null; return; }
+    try {
+      this.emoBgImg = await loadImage(url);
+    } catch {
+      this.emoBgImg = null;
     }
   }
 
@@ -879,9 +910,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       case 'Stained Glass Voronoi':
         this.drawStainedGlassVoronoi(ctx, w, h, time, dt);
         break;
-       case 'Emo Slashes':
-	this.drawEmoSlashes(ctx, w, h, time, dt); 
-	break;
+      case 'Emo Slashes':
+        this.drawEmoSlashes(ctx, w, h, time, dt);
+        break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
         break;
@@ -2053,6 +2084,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const count = this.reduceMotion ? 1 : 2 + ((this.features.danceability ?? 0.5) > 0.6 ? 1 : 0);
     this.spawnEmoSlash(cx, cy, count);
     this.emoGlow = Math.min(1, this.emoGlow + 0.5);
+
+    // NEW: punch the hero tilt and gleam on each beat
+    this.emoHeroTiltVel += ((Math.random() - 0.5) * 0.8) * (this.reduceMotion ? 0.5 : 1);
+    this.emoHeroPulse = Math.min(1, this.emoHeroPulse + 0.8);
+    this.emoHeroGleam = 0; // restart sweep
   }
 
   private onDownbeat_EmoSlashes() {
@@ -2062,20 +2098,65 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.spawnEmoSlash(cx, cy, add);
     this.spawnEmoRipple(cx, cy);
     this.emoGlow = 1;
+
+    // Bigger tilt on downbeat
+    this.emoHeroTiltVel += (Math.random() < 0.5 ? -1 : 1) * (this.reduceMotion ? 0.08 : 0.16);
+    this.emoHeroPulse = 1;
+    this.emoHeroGleam = 0;
   }
 
   private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Background: dark vignette with a subtle diagonal gradient
-    const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-    const g = ctx.createLinearGradient(0, 0, w, h);
-    g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
-    g.addColorStop(1, `hsla(${(baseHue + 260) % 360}, 30%, 10%, 1)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    // Background: if a background image exists, draw cover-fit with slight blur and dim
+    if (this.emoBgImg) {
+      const img = this.emoBgImg;
+      const cw = img.naturalWidth;
+      const ch = img.naturalHeight;
+      const targetAR = w / h;
+      const srcAR = cw / ch;
+      let sx = 0, sy = 0, sw = cw, sh = ch;
+      if (srcAR > targetAR) {
+        sw = ch * targetAR;
+        sx = (cw - sw) / 2;
+      } else {
+        sh = cw / targetAR;
+        sy = (ch - sh) / 2;
+      }
+      const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05; // gentle drift zoom
+      const dw = w * zoom;
+      const dh = h * zoom;
+      const dx = (w - dw) / 2;
+      const dy = (h - dh) / 2;
+
+      // Dim and blur slightly
+      const oldFilter = (ctx as any).filter ?? 'none';
+      try {
+        (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)';
+      } catch {}
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      try { (ctx as any).filter = oldFilter; } catch {}
+
+      // Soft vignette on top
+      ctx.globalAlpha = 0.35;
+      const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.9)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+    } else {
+      // Fallback background if no image
+      const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+      const g = ctx.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
+      g.addColorStop(1, `hsla(${(baseHue + 260) % 360}, 30%, 10%, 1)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     // Subtle drifting fog
     ctx.globalAlpha = 0.12;
-    ctx.fillStyle = `hsla(${(baseHue + 200) % 360}, 50%, 60%, 1)`;
+    const baseHueFog = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    ctx.fillStyle = `hsla(${(baseHueFog + 200) % 360}, 50%, 60%, 1)`;
     const fogT = time * 12;
     for (let i = 0; i < 3; i++) {
       const rx = (Math.sin(fogT * 0.03 + i * 2.1) * 0.5 + 0.5) * w;
@@ -2087,7 +2168,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.globalAlpha = 1;
 
-    // Petals
+    // Petals behind the hero
     this.ensureEmoPetals(w, h);
     const gravity = 20 + (this.features.energy ?? 0.5) * 60;
     const drift = (this.features.danceability ?? 0.5) * 20;
@@ -2150,7 +2231,68 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
-    // Slashes
+    // NEW: Collector hero image (PNG with alpha)
+    if (this.emoHeroImg) {
+      // Update tilt physics and gleam progression
+      // spring back to 0 tilt
+      const tiltSpring = 6.0;
+      this.emoHeroTiltVel += (-this.emoHeroTilt) * tiltSpring * dt;
+      this.emoHeroTiltVel *= 0.90; // damping
+      this.emoHeroTilt += this.emoHeroTiltVel * dt;
+
+      // Add subtle idle sway
+      const sway = (Math.sin(time * 0.6) * (this.reduceMotion ? 0.5 : 1)) * (Math.PI / 180) * 2.0;
+      const tilt = this.emoHeroTilt + sway;
+
+      // Gleam sweeps from left to right over ~0.9s after a beat
+      const gleamSpeed = 1 / 0.9;
+      this.emoHeroGleam = Math.min(1, this.emoHeroGleam + dt * gleamSpeed);
+      this.emoHeroPulse = Math.max(0, this.emoHeroPulse - dt * 1.5);
+
+      // Compute draw size
+      const minDim = Math.min(w, h);
+      const baseScale = this.emoHeroScale;
+      const targetW = minDim * baseScale;
+      const img = this.emoHeroImg;
+      const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+      const drawW = targetW;
+      const drawH = targetW / aspect;
+
+      const cx = w * 0.5;
+      const cy = h * 0.58; // slightly below center
+
+      // Glow pulse color ties to key hue
+      const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+
+      // Draw hero with outer glow
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(tilt);
+      ctx.shadowBlur = 20 + 40 * this.emoHeroPulse;
+      ctx.shadowColor = `hsla(${hue}, 90%, 60%, ${0.35 + 0.4 * this.emoHeroPulse})`;
+      ctx.globalAlpha = 0.98;
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.globalAlpha = 1;
+
+      // Gleam overlay clipped to hero via source-atop
+      // Wide diagonal gradient band crossing the hero
+      const gleamT = this.emoHeroGleam;
+      const bandX = (gleamT - 0.2) * drawW; // start slightly off left
+      ctx.globalCompositeOperation = 'source-atop';
+      const g = ctx.createLinearGradient(bandX - drawW, -drawH, bandX + drawW, drawH);
+      const a0 = 0;
+      const a1 = Math.min(0.28, 0.12 + this.emoHeroPulse * 0.35);
+      g.addColorStop(0.34, `rgba(255,255,255,${a0})`);
+      g.addColorStop(0.5, `rgba(255,255,255,${a1})`);
+      g.addColorStop(0.66, `rgba(255,255,255,${a0})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(-drawW / 2 - drawW, -drawH / 2 - drawH, drawW * 3, drawH * 3);
+      ctx.globalCompositeOperation = 'source-over';
+
+      ctx.restore();
+    }
+
+    // Slashes (draw above petals, but below vignette)
     this.emoGlow = Math.max(0, this.emoGlow - dt * 2.5);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -2217,10 +2359,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     // Foreground vignette
     ctx.globalAlpha = 0.25;
-    const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.9)');
-    ctx.fillStyle = vg;
+    const vg2 = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
+    vg2.addColorStop(0, 'rgba(0,0,0,0)');
+    vg2.addColorStop(1, 'rgba(0,0,0,0.9)');
+    ctx.fillStyle = vg2;
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
   }
@@ -2517,264 +2659,20 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     };
     return `rgb(${c.r}, ${c.g}, ${c.b})`;
   }
-}
 
-// Utility functions
-
-function clampInt(v: number, min: number, max: number) {
-  return v < min ? min : v > max ? max : v | 0;
-}
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-  ctx.lineTo(x + rr, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-  ctx.lineTo(x, y + rr);
-  ctx.quadraticCurveTo(x, y, x + rr, y);
-  ctx.closePath();
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-// Color utils
-
-function hexToRgb(hex: string) {
-  const m = hex.trim().replace('#', '');
-  const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
-  const n = parseInt(s, 16);
-  if (Number.isNaN(n) || (s.length !== 6)) return null;
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
-  const h = (n: number) => n.toString(16).padStart(2, '0');
-  return `#${h(r)}${h(g)}${h(b)}`;
-}
-function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h *= 60;
-  }
-  return { h, s, l };
-}
-function hslToRgb(h: number, s: number, l: number) {
-  h = ((h % 360) + 360) % 360;
-  s = Math.max(0, Math.min(1, s));
-  l = Math.max(0, Math.min(1, l));
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let r1 = 0, g1 = 0, b1 = 0;
-  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else { r1 = c; g1 = 0; b1 = x; }
-  return {
-    r: Math.round((r1 + m) * 255),
-    g: Math.round((g1 + m) * 255),
-    b: Math.round((b1 + m) * 255)
-  };
-}
-function shiftHueHex(hex: string, hue: number) {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return hex;
-  const { s, l } = rgbToHsl(rgb);
-  const rgb2 = hslToRgb(hue, s, l);
-  return rgbToHex(rgb2);
-}
-function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
-  return {
-    dominant: shiftHueHex(p.dominant, hue),
-    secondary: shiftHueHex(p.secondary, hue),
-    colors: p.colors.map((c) => shiftHueHex(c, hue))
-  };
-}
-function blendHex(a: string, b: string, t: number) {
-  const A = hexToRgb(a), B = hexToRgb(b);
-  if (!A || !B) return a;
-  return rgbToHex({
-    r: Math.round(A.r + (B.r - A.r) * t),
-    g: Math.round(A.g + (B.g - A.g) * t),
-    b: Math.round(A.b + (B.b - A.b) * t)
-  });
-}
-function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
-  return {
-    dominant: blendHex(a.dominant, b.dominant, t),
-    secondary: blendHex(a.secondary, b.secondary, t),
-    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
-  };
-}
-function angularDelta(current: number, target: number) {
-  let d = ((target - current + 540) % 360) - 180;
-  return d;
-}
-
-// Polygon clip against half-plane: keep points P s.t. dot(P - M, S) <= 0
-function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
-  if (poly.length === 0) return poly;
-  const out: Array<{ x: number; y: number }> = [];
-  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
-
-  for (let i = 0; i < poly.length; i++) {
-    const A = poly[i];
-    const B = poly[(i + 1) % poly.length];
-    const fa = f(A.x, A.y);
-    const fb = f(B.x, B.y);
-    const ain = fa <= 0;
-    const bin = fb <= 0;
-
-    if (ain && bin) {
-      // in -> in
-      out.push({ x: B.x, y: B.y });
-    } else if (ain && !bin) {
-      // in -> out : add intersection
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-    } else if (!ain && bin) {
-      // out -> in : add intersection + B
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-      out.push({ x: B.x, y: B.y });
-    } else {
-      // out -> out : nothing
-    }
-  }
-  return out;
-}
-
-// Tint an RGB color toward a target hue by amount 0..1
-function tintRgbTowardHue(c: { r: number; g: number; b: number }, hue: number, amt: number) {
-  if (amt <= 0) return c;
-  const hsl = rgbToHsl(c);
-  const tgt = hslToRgb(hue, Math.max(0.45, hsl.s), hsl.l);
-  return {
-    r: Math.round(lerp(c.r, tgt.r, amt)),
-    g: Math.round(lerp(c.g, tgt.g, amt)),
-    b: Math.round(lerp(c.b, tgt.b, amt))
-  };
-}
-
-// Parse helpers for lyrics
-
-function parseTimeTag(min: string, sec: string, frac?: string) {
-  const m = parseInt(min, 10) || 0;
-  const s = parseInt(sec, 10) || 0;
-  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
-  return m * 60 + s + f / 1000;
-}
-
-// Parse standard LRC with optional per-word tags like <mm:ss.xx>
-function parseLRC(lrc: string): LyricLine[] {
-  const lines: { ts: number; text: string }[] = [];
-  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
-
-  const rawLines = lrc.split(/\r?\n/);
-  for (const raw of rawLines) {
-    if (!raw.trim()) continue;
-    // Extract all leading time tags
-    let match: RegExpExecArray | null;
-    timeTag.lastIndex = 0;
-    const stamps: number[] = [];
-    let textStartIdx = 0;
-    while ((match = timeTag.exec(raw))) {
-      stamps.push(parseTimeTag(match[1], match[2], match[3]));
-      textStartIdx = timeTag.lastIndex;
-    }
-    const text = raw.slice(textStartIdx).trim();
-    if (!stamps.length || !text) continue;
-    for (const ts of stamps) {
-      lines.push({ ts, text });
-    }
-  }
-  // Sort by timestamp
-  lines.sort((a, b) => a.ts - b.ts);
-
-  // Build line objects and estimate end time as next start
-  const out: LyricLine[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const start = lines[i].ts;
-    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
-    out.push({ start, end, text: lines[i].text });
-  }
-
-  // Optional: per-word timing if inline tags exist
-  if (lrc.indexOf('<') !== -1) {
-    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
-    for (const ln of out) {
-      const src = ln.text;
-      wordTag.lastIndex = 0;
-      const words: LyricWord[] = [];
-      let lastIdx = 0;
-      let m: RegExpExecArray | null;
-      const starts: number[] = [];
-      let collectedText = '';
-      while ((m = wordTag.exec(src))) {
-        const before = src.slice(lastIdx, m.index);
-        if (before.trim()) {
-          collectedText += before;
-        }
-        const start = parseTimeTag(m[1], m[2], m[3]);
-        starts.push(start);
-        lastIdx = m.index + m[0].length;
-      }
-      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
-      if (starts.length && collectedText.trim()) {
-        const tokens = collectedText.trim().split(/\s+/);
-        const N = Math.min(tokens.length, starts.length);
-        for (let i = 0; i < N; i++) {
-          const st = starts[i];
-          const en = i + 1 < N ? starts[i + 1] : ln.end;
-          words.push({ start: st, end: en, text: tokens[i] });
-        }
-        ln.words = words;
-        ln.text = tokens.join(' ');
-      }
-    }
-  }
-
-  return out;
-}
-
-// Fallback: evenly distribute plain lyrics lines across track duration
-function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
-  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!rows.length || durationSec <= 0) return [];
-  const base = 1.0; // start at 1s in
-  const total = Math.max(5, durationSec - 1);
-  const step = Math.max(1, total / rows.length);
-  const out: LyricLine[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const start = base + i * step;
-    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
-    out.push({ start, end, text: rows[i] });
-  }
-  return out;
-}
+  // Voronoi (unchanged core)
+  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+    // Start with one big rectangle
+    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
+    for (let i = 0; i < sites.length; i++) {
+      const si = sites[i];
+      let poly = B.slice();
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const sj = sites[j];
+        const mx = (si.x + sj.x) / 2;
+        const my = (si.y + sj.y) / 2;
+        const sx = sj.x - si.x;
+        const sy = sj.y - si.y;
+        poly
