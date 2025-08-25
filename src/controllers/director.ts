@@ -2382,7 +2382,7 @@ function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
 }
 function blendHex(a: string, b: string, t: number) {
   const A = hexToRgb(a), B = hexToRgb(b);
-  if (!A or !B) return a;
+  if (!A || !B) return a;
   return rgbToHex({
     r: Math.round(A.r + (B.r - A.r) * t),
     g: Math.round(A.g + (B.g - A.g) * t),
