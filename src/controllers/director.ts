@@ -2270,37 +2270,33 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Voronoi core (fixed and complete)
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-  const cells: SGCell[] = [];
+ private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] { const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; const cells: SGCell[] = [];
 
-  for (let i = 0; i < sites.length; i++) {
-    const si = sites[i];
-    let poly = B.slice();
+for (let i = 0; i < sites.length; i++) { const si = sites[i]; let poly = B.slice();
 
-    for (let j = 0; j < sites.length; j++) {
-      if (i === j) continue;
-      const sj = sites[j];
+for (let j = 0; j < sites.length; j++) {
+  if (i === j) continue;
+  const sj = sites[j];
 
-      const mx = (si.x + sj.x) / 2;
-      const my = (si.y + sj.y) / 2;
-      const sx = sj.x - si.x;
-      const sy = sj.y - si.y;
+  const mx = (si.x + sj.x) / 2;
+  const my = (si.y + sj.y) / 2;
+  const sx = sj.x - si.x;
+  const sy = sj.y - si.y;
 
-      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-      if (poly.length === 0) break;
-    }
+  poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+  if (poly.length === 0) break;
+}
 
-    if (poly.length >= 3) {
-      let cx = 0, cy = 0;
-      for (const p of poly) { cx += p.x; cy += p.y; }
-       cx /= poly.length; cy /= poly.length;
+if (poly.length >= 3) {
+  let cx = 0, cy = 0;
+  for (const p of poly) { cx += p.x; cy += p.y; }
+  cx /= poly.length; cy /= poly.length;
 
-       let radius = 0;
-       for (const p of poly) radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy));
+  let radius = 0;
+  for (const p of poly) radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy));
 
-       cells.push({ pts: poly, cx, cy, color: si.color, radius });
-     }
+  cells.push({ pts: poly, cx, cy, color: (sites[i].color), radius });
+}
    }
 
    return cells;
@@ -2652,16 +2648,16 @@ function clipPolygonHalfPlane(
     const ain = fa <= 0;
     const bin = fb <= 0;
 
-    if (ain && bin) {
-      out.push({ x: B.x, y: B.y });
-    } else if (ain && !bin) {
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-    } else if (!ain && bin) {
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-      out.push({ x: B.x, y: B.y });
-    }
+   if (ain && bin) {
+  out.push({ x: B.x, y: B.y });
+} else if (ain && !bin) {
+  const t = fa / (fa - fb);
+  out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+} else if (!ain && bin) {
+  const t = fa / (fa - fb);
+  out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+  out.push({ x: B.x, y: B.y });
+	}
   }
 
   return out;
