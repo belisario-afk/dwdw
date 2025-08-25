@@ -2541,4 +2541,8 @@ function blendHex(a: string, b: string, t: number) {
 }
 function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
   return {
-    dominant: blendHex(a.dominant, b.dominant, t
+    dominant: blendHex(a.dominant, b.dominant, t),
+    secondary: blendHex(a.secondary, b.secondary, t),
+    colors: a.colors.map((c, i) => blendHex(c, b.colors[i] || b.dominant, t))
+  };
+}
