@@ -24,6 +24,19 @@
       #screensaver { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:radial-gradient(ellipse at center, #0008, #000c); }
       #screensaver.active { display:flex; }
       a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+
+      /* Visually hidden but accessible labels */
+      .sr-only {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+      }
     </style>
     <script>
       // Prevent Spotify SDK "undefined callback" warning
@@ -37,31 +50,61 @@
       <div id="ui">
         <div id="topbar" class="panel">
           <div id="auth-area" class="row">
-            <button id="btn-login">Login with Spotify</button>
-            <button id="btn-logout" class="hidden">Logout</button>
-            <span id="user-label" class="badge"></span>
+            <button id="btn-login" aria-label="Login with Spotify">Login with Spotify</button>
+            <button id="btn-logout" class="hidden" aria-label="Logout">Logout</button>
+            <span id="user-label" class="badge" aria-live="polite"></span>
           </div>
           <div class="spacer"></div>
           <div class="row">
             <span class="badge" id="gpu-label">GPU: …</span>
             <span class="badge" id="fps-label">FPS: …</span>
-            <button id="btn-fullscreen" title="Fullscreen">⤢</button>
+            <button id="btn-fullscreen" title="Fullscreen" aria-label="Toggle Fullscreen">⤢</button>
           </div>
         </div>
+
         <div id="bottombar" class="panel">
-          <div class="row" id="transport">
-            <button id="btn-prev">⏮</button>
-            <button id="btn-play">▶</button>
-            <button id="btn-pause" class="hidden">⏸</button>
-            <button id="btn-next">⏭</button>
-            <input id="seek" type="range" min="0" max="1000" value="0" step="1" style="width: 240px;" />
-            <span id="time-label" class="badge">0:00 / 0:00</span>
-            <input id="volume" type="range" min="0" max="100" value="80" step="1" title="Volume" />
-            <select id="device-picker" title="Device"></select>
+          <div class="row" id="transport" role="group" aria-label="Transport controls">
+            <button id="btn-prev" aria-label="Previous track" title="Previous">⏮</button>
+            <button id="btn-play" aria-label="Play" title="Play">▶</button>
+            <button id="btn-pause" class="hidden" aria-label="Pause" title="Pause">⏸</button>
+            <button id="btn-next" aria-label="Next track" title="Next">⏭</button>
+
+            <label class="sr-only" for="seek" id="seek-label">Seek position</label>
+            <input
+              id="seek"
+              type="range"
+              min="0"
+              max="1000"
+              value="0"
+              step="1"
+              style="width: 240px;"
+              aria-labelledby="seek-label"
+              title="Seek position"
+            />
+
+            <span id="time-label" class="badge" role="status" aria-live="polite">0:00 / 0:00</span>
+
+            <label class="sr-only" for="volume" id="volume-label">Volume</label>
+            <input
+              id="volume"
+              type="range"
+              min="0"
+              max="100"
+              value="80"
+              step="1"
+              title="Volume"
+              aria-labelledby="volume-label"
+            />
+
+            <label class="sr-only" for="device-picker" id="device-picker-label">Playback device</label>
+            <select id="device-picker" title="Playback device" aria-labelledby="device-picker-label"></select>
           </div>
+
           <div class="spacer"></div>
-          <div class="row" id="scene-picker">
-            <select id="scene-select" title="Scene">
+
+          <div class="row" id="scene-picker" role="group" aria-label="Visual controls">
+            <label class="sr-only" for="scene-select" id="scene-select-label">Scene</label>
+            <select id="scene-select" title="Scene" aria-labelledby="scene-select-label">
               <option value="Auto">Auto</option>
               <option value="Particles">Particles</option>
               <option value="Fluid">Fluid</option>
@@ -69,45 +112,18 @@
               <option value="Terrain">Terrain</option>
               <option value="Typography">Typography</option>
             </select>
-            <button id="btn-crossfade">Crossfade</button>
-            <button id="btn-record">● Rec</button>
-            <button id="btn-vj">VJ</button>
-            <button id="btn-quality">Quality</button>
-            <button id="btn-accessibility">Accessibility</button>
+            <button id="btn-crossfade" aria-label="Crossfade visuals" title="Crossfade">Crossfade</button>
+            <button id="btn-record" aria-label="Start or stop recording" title="Record">● Rec</button>
+            <button id="btn-vj" aria-label="Open VJ controls" title="VJ">VJ</button>
+            <button id="btn-quality" aria-label="Quality settings" title="Quality">Quality</button>
+            <button id="btn-accessibility" aria-label="Accessibility settings" title="Accessibility">Accessibility</button>
           </div>
         </div>
+
         <div id="panels"></div>
         <div id="screensaver"><div class="panel">Screensaver — press any key</div></div>
       </div>
     </div>
-
-    <!-- Safety shim: create hidden placeholders for any missing controls to avoid null crashes -->
-    <script>
-      (function ensureControls() {
-        const defs = [
-          // auth/topbar
-          ['btn-login','button'], ['btn-logout','button'], ['user-label','span'],
-          ['gpu-label','span'], ['fps-label','span'], ['btn-fullscreen','button'],
-          // transport
-          ['btn-prev','button'], ['btn-play','button'], ['btn-pause','button'], ['btn-next','button'],
-          ['seek','input'], ['time-label','span'], ['volume','input'], ['device-picker','select'],
-          // scenes
-          ['scene-select','select'], ['btn-crossfade','button'], ['btn-record','button'],
-          ['btn-vj','button'], ['btn-quality','button'], ['btn-accessibility','button'],
-          // containers
-          ['panels','div'], ['canvas-host','div'], ['bottombar','div'], ['topbar','div']
-        ];
-        for (const [id, tag] of defs) {
-          if (!document.getElementById(id)) {
-            const el = document.createElement(tag);
-            el.id = id;
-            el.className = 'hidden';
-            document.body.appendChild(el);
-            console.warn('Created placeholder for #' + id);
-          }
-        }
-      })();
-    </script>
 
     <!-- App -->
     <script type="module" src="./src/main.ts"></script>

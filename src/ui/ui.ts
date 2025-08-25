@@ -56,11 +56,13 @@ export class UI {
 
   private startDevicePolling() {
     if (this.devicePoll !== null) return;
+
     const refreshDevices = async () => {
       if (!this.auth.getAccessToken()) return;
       try {
         const devices = await this.api.getDevices();
         if (!this.els.devpick) return;
+
         this.els.devpick.innerHTML = '';
         for (const d of devices) {
           const opt = document.createElement('option');
@@ -69,10 +71,11 @@ export class UI {
           this.els.devpick.appendChild(opt);
           if (d.is_active && d.id) this.els.devpick.value = d.id;
         }
-      } catch (e) {
+      } catch {
         // Avoid noisy logs; device polling can fail transiently
       }
     };
+
     // Initial fetch + periodic refresh
     refreshDevices();
     this.devicePoll = window.setInterval(refreshDevices, 5000);
@@ -118,6 +121,7 @@ export class UI {
         if (!this.ensureAuthed()) return;
         await this.player.next();
       };
+
     if (this.els.seek)
       this.els.seek.oninput = async () => {
         if (!this.ensureAuthed()) return;
@@ -125,12 +129,20 @@ export class UI {
         if (pb?.item?.duration_ms) {
           const ms = (Number(this.els.seek!.value) / 1000) * pb.item.duration_ms;
           await this.player.seek(ms);
+          // Update aria-valuetext for assistive tech
+          this.els.seek!.setAttribute(
+            'aria-valuetext',
+            `${formatTime(pb.progress_ms || 0)} of ${formatTime(pb.item.duration_ms)}`
+          );
         }
       };
+
     if (this.els.volume)
       this.els.volume.oninput = async () => {
         if (!this.ensureAuthed()) return;
         await this.player.setVolume(Number(this.els.volume!.value));
+        // Announce volume to assistive tech
+        this.els.volume!.setAttribute('aria-valuetext', `${this.els.volume!.value} percent`);
       };
 
     // Device picker
@@ -168,6 +180,11 @@ export class UI {
         if (this.els.login) this.els.login.classList.remove('hidden');
         if (this.els.logout) this.els.logout.classList.add('hidden');
         if (this.els.userLabel) this.els.userLabel.textContent = '';
+        // Reset playback UI on logout
+        if (this.els.timeLabel) this.els.timeLabel.textContent = '0:00 / 0:00';
+        if (this.els.seek) this.els.seek.value = '0';
+        if (this.els.play) this.els.play.classList.remove('hidden');
+        if (this.els.pause) this.els.pause.classList.add('hidden');
         this.stopDevicePolling();
       }
     });
@@ -214,8 +231,14 @@ export class UI {
     const track = pb.item as SpotifyApi.TrackObjectFull;
     const dur = track.duration_ms || 0;
     const cur = pb.progress_ms || 0;
+
     if (this.els.timeLabel) this.els.timeLabel.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
-    if (this.els.seek) this.els.seek.value = String(Math.round((1000 * cur) / Math.max(1, dur)));
+
+    if (this.els.seek) {
+      this.els.seek.value = String(Math.round((1000 * cur) / Math.max(1, dur)));
+      this.els.seek.setAttribute('aria-valuetext', `${formatTime(cur)} of ${formatTime(dur)}`);
+    }
+
     if (pb.is_playing) {
       if (this.els.play) this.els.play.classList.add('hidden');
       if (this.els.pause) this.els.pause.classList.remove('hidden');
