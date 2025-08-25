@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import { VisualScene } from './types';
 import { SceneManager } from '@visuals/engine';
-import SimplexNoise from 'simplex-noise';
-
-const noise = new SimplexNoise();
 
 class ParticlesScene implements VisualScene {
   name = 'Particles' as const;
