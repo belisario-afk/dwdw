@@ -179,8 +179,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const a = this.bufferA.getContext('2d');
     const b = this.bufferB.getContext('2d');
     if (!a || !b) throw new Error('2D buffer context not available');
-    this.bufCtxA = a;
-    this.bufCtxB = b;
+    this.bufCtxA = a!;
+    this.bufCtxB = b!;
 
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
@@ -197,12 +197,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
 
-      // Adjust defaults by motion for Flow Field
+      // Flow particles and sprites sizing
       this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
       this.ensureFlowParticles();
       this.ensureFlowSprites();
 
-      // Reset Neon Bars layout cache to recompute bar count on next draw
+      // Neon bars layout cache reset
       this.neonLastLayoutW = 0;
     };
     window.addEventListener('resize', onResize);
@@ -239,7 +239,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         this.ensureFlowParticles();
         this.ensureFlowSprites();
       }
-    } catch (e) {
+    } catch {
       // If art fails (CORS/404), clear field so scene uses procedural fallback
       this.flowVec = null;
       this.flowMag = null;
@@ -314,6 +314,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
           <span>Beat confetti</span>
         </label>
+
+        <div style="margin-top:10px;">
+          <button id="open-flow-panel">Configure Flow Field…</button>
+        </div>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
@@ -345,6 +349,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         .addEventListener('change', (e) => {
           this.beatConfettiEnabled = (e.target as HTMLInputElement).checked;
           this.togglePanel('access', false);
+        });
+      // Restore Flow Field config opener
+      panel.querySelector<HTMLButtonElement>('#open-flow-panel')!
+        .addEventListener('click', () => {
+          this.togglePanel('access', false);
+          this.toggleFlowFieldPanel(true);
         });
     });
     this.togglePanel('access', undefined);
