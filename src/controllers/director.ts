@@ -212,7 +212,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private emoRipples: EmoRipple[] = [];
   private emoGlow = 0;
 
-  // NEW: Emo Slashes "collector" image support
+  // Collector image support for Emo Slashes
   private emoBgImg: HTMLImageElement | null = null;     // Background (cover-fit, blurred/dim)
   private emoHeroImg: HTMLImageElement | null = null;   // Foreground transparent PNG (e.g., Demon Slayer)
   private emoHeroScale = 0.65;                          // Relative to min(w, h)
@@ -295,7 +295,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.emit('palette', p);
   }
 
-  // New: set album art for Flow Field scene and color sampling
+  // Flow Field and image sampling base
   async setAlbumArt(url: string | null) {
     if (!url || url === this.albumArtUrl) return;
     this.albumArtUrl = url;
@@ -327,19 +327,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // NEW: Emo Slashes collector image hooks
-  // Call this with your PNG URL, e.g. director.setEmoHeroImage('assets/Demon-Slayer-PNG-Pic.png')
+  // Emo Slashes collector image hooks
   async setEmoHeroImage(url: string | null) {
     if (!url) { this.emoHeroImg = null; return; }
     try {
       this.emoHeroImg = await loadImage(url);
-      // If no explicit background provided, default to using this image as background too
       if (!this.emoBgImg) this.emoBgImg = this.emoHeroImg;
     } catch {
       this.emoHeroImg = null;
     }
   }
-  // Optional separate background (e.g., wallpaper)
   async setEmoBackgroundImage(url: string | null) {
     if (!url) { this.emoBgImg = null; return; }
     try {
@@ -421,7 +418,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
           this.reduceMotion = (e.target as HTMLInputElement).checked;
-          // Update flow particle default
           this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
           this.ensureFlowParticles();
           this.togglePanel('access', false);
@@ -1254,42 +1250,30 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Flow Field: build vector field from album art using Sobel edges
   private async buildFlowField(img: HTMLImageElement) {
-    // Choose a compact field size for performance
     const maxDim = this.reduceMotion ? 112 : 160;
     const aspect = img.naturalWidth / img.naturalHeight;
     let w = 0, h = 0;
-    if (aspect >= 1) { // wide
-      w = maxDim;
-      h = Math.max(16, Math.round(maxDim / aspect));
-    } else {
-      h = maxDim;
-      w = Math.max(16, Math.round(maxDim * aspect));
-    }
+    if (aspect >= 1) { w = maxDim; h = Math.max(16, Math.round(maxDim / aspect)); }
+    else { h = maxDim; w = Math.max(16, Math.round(maxDim * aspect)); }
 
-    // Draw into an offscreen canvas with "cover" fit to preserve composition
+    // Draw cover-fit
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
     const o = off.getContext('2d')!;
     o.clearRect(0, 0, w, h);
 
-    // Compute cover-fit draw rect
     const cw = img.naturalWidth;
     const ch = img.naturalHeight;
     const targetAR = w / h;
     const srcAR = cw / ch;
     let sx = 0, sy = 0, sw = cw, sh = ch;
-    if (srcAR > targetAR) {
-      sw = ch * targetAR;
-      sx = (cw - sw) / 2;
-    } else {
-      sh = cw / targetAR;
-      sy = (ch - sh) / 2;
-    }
+    if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
+    else { sh = cw / targetAR; sy = (ch - sh) / 2; }
     o.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
 
     const imgData = o.getImageData(0, 0, w, h);
 
-    // Keep a copy for color sampling (upscaled later)
+    // Keep a copy for color sampling
     this.flowImageCanvas = document.createElement('canvas');
     this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
     this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as any)!;
@@ -1306,7 +1290,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const vec = new Float32Array(w * h * 2);
     const mag = new Float32Array(w * h);
 
-    // Sobel kernels produce gradient (gx, gy)
+    // Sobel kernels -> gradient (gx, gy)
     const idx = (x: number, y: number) => y * w + x;
     let maxEdge = 0;
     for (let y = 1; y < h - 1; y++) {
@@ -1413,7 +1397,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_FlowField() {
-    // On beat: refresh some particles and optionally respawn sprites
     const n = Math.min(120, Math.round((this.flowParticles.length * 0.08) || 0));
     const W = this.bufferA.width, H = this.bufferA.height;
     for (let i = 0; i < n; i++) {
@@ -1439,7 +1422,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private drawFlowField(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Background using palette
     const bg = ctx.createLinearGradient(0, 0, w, h);
     const lastCol = this.palette.colors[this.palette.colors.length - 1] || this.palette.secondary;
     bg.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
@@ -1466,9 +1448,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     for (let i = 0; i < this.flowParticles.length; i++) {
       const p = this.flowParticles[i];
 
-      // Sample flow vector (art + swirl)
       const fv = this.sampleFlowVector(p.x, p.y, w, h, time);
-      const m = fv[2]; // strength
+      const m = fv[2];
       const targetVx = fv[0] * baseSpeed * (0.4 + m) * beatBoost;
       const targetVy = fv[1] * baseSpeed * (0.4 + m) * beatBoost;
 
@@ -1491,7 +1472,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         p.vx = 0; p.vy = 0;
         p.life = 0;
         p.ttl = 1.5 + Math.random() * 4;
-        // Slight hue drift
         p.hue = this.pickFlowHue(i);
       }
 
@@ -1527,7 +1507,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
 
-    // Edge overlay
     if (this.flowSettings.edgeOverlay && this.flowOverlayCanvas) {
       ctx.globalAlpha = 0.15;
       ctx.imageSmoothingEnabled = true;
@@ -1535,7 +1514,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.globalAlpha = 1;
     }
 
-    // Tiny album cover sprites
     if (this.flowSettings.spritesEnabled && this.albumImg) {
       this.ensureFlowSprites();
       const minDim = Math.min(w, h);
@@ -1563,7 +1541,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           s.alpha = 0.95;
         }
 
-        // Draw sprite
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(s.angle);
@@ -1576,12 +1553,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // Sample from combined flow: album edge vectors + procedural swirl based on settings
   private sampleFlowVector(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
     let vx = 0, vy = 0, m = 0;
 
     if (this.flowVec && this.flowMag && this.flowW && this.flowH) {
-      // Bilinear sample
       const fx = (x / w) * (this.flowW - 1);
       const fy = (y / h) * (this.flowH - 1);
       const ix = Math.floor(fx), iy = Math.floor(fy);
@@ -1602,32 +1577,26 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       m = lerp(lerp(mv00, mv10, tx), lerp(mv01, mv11, tx), ty);
     }
 
-    // Procedural swirl fallback/blend
     const swirlT = this.flowSettings.swirlAmount;
     if (swirlT > 0) {
       const s = this.sampleSwirl(x, y, w, h, time);
-      // Blend swirl in; if no art vectors, m is small so give swirl some strength
       const blend = swirlT * (0.6 + 0.4 * (1 - m));
       vx = lerp(vx, s[0], blend);
       vy = lerp(vy, s[1], blend);
       m = Math.max(m, s[2] * swirlT);
     }
 
-    // Normalize to avoid zero-length vectors
     const len = Math.hypot(vx, vy);
     if (len > 1e-5) { vx /= len; vy /= len; }
     return [vx, vy, Math.max(0, Math.min(1, m))];
   }
 
-  // Swirl vector field (animated)
   private sampleSwirl(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
-    // Map to -1..1 space
     const nx = (x / w) * 2 - 1;
     const ny = (y / h) * 2 - 1;
     const r = Math.hypot(nx, ny) + 1e-6;
     const angle = Math.atan2(ny, nx);
 
-    // Add gentle time-based rotation and radial flow
     const t = time * 0.2;
     const twist = Math.sin(angle * 3 + t) * 0.5 + Math.cos(r * 6 - t) * 0.5;
     const dir = angle + Math.PI / 2 + twist * 0.5;
@@ -1635,7 +1604,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     let vx = Math.cos(dir);
     let vy = Math.sin(dir);
 
-    // Magnitude strongest around mid-radius
     const mag = Math.exp(-((r - 0.6) * (r - 0.6)) * 6);
     return [vx, vy, mag];
   }
@@ -1672,10 +1640,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     return rgbToHsl(hexToRgb(col)!).h;
   }
 
-  // Neon Bars
+  // Neon Bars (omitted comments; logic same as before)
 
   private ensureNeonBars(w: number) {
-    // Recompute bar count when width changes significantly
     if (this.neonBars.length && Math.abs(this.neonLastLayoutW - w) < 16) return;
     this.neonLastLayoutW = w;
 
@@ -1689,22 +1656,19 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_NeonBars() {
-    // Boost neon glow on each beat
     this.neonGlow = Math.min(1, this.neonGlow + 0.6);
-    // Add a little hit to low/mid bars to emulate kick/snare
     const n = this.neonBars.length;
     if (!n) return;
     for (let i = 0; i < n; i++) {
       const band = i / n;
       let boost = 0;
-      if (band < 0.2) boost = 0.25 + (this.features.energy ?? 0.5) * 0.2; // kick-ish
-      else if (band > 0.35 && band < 0.7) boost = 0.12; // snare-ish
+      if (band < 0.2) boost = 0.25 + (this.features.energy ?? 0.5) * 0.2;
+      else if (band > 0.35 && band < 0.7) boost = 0.12;
       if (boost) this.neonBars[i].target = Math.min(1, this.neonBars[i].target + boost);
     }
   }
 
   private onDownbeat_NeonBars() {
-    // Launch two sweeping stingers across the bars (left->right and right->left)
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const now = performance.now() / 1000;
     const dur = 0.6;
@@ -1714,15 +1678,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private drawNeonBars(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     this.ensureNeonBars(w);
-
-    // Background: subtle dark gradient
     const bg = ctx.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, '#07070a');
     bg.addColorStop(1, '#0e0e14');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Bottom base line
     ctx.globalAlpha = 0.35;
     ctx.strokeStyle = '#ffffff18';
     ctx.lineWidth = 2;
@@ -1735,7 +1696,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const energy = this.features.energy ?? 0.5;
     const dance = this.features.danceability ?? 0.5;
 
-    // Update bar values (pseudo-EQ)
     const n = this.neonBars.length;
     const attack = 0.18 + dance * 0.25;
     const decay = 0.08 + (1 - dance) * 0.06;
@@ -1744,7 +1704,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     for (let i = 0; i < n; i++) {
       const band = i / Math.max(1, n - 1);
-      // Frequency-skewed motion: lows slower, highs quicker
       const f1 = 0.8 + band * 1.6;
       const f2 = 1.6 + band * 2.2;
       const noise =
@@ -1752,37 +1711,28 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         (Math.sin(time * f2 * 2.1 + i * 1.7) * 0.5 + 0.5) * 0.4;
 
       let target = baseFloor + noise * maxAmp;
-
-      // Emphasize beat for some bands
       if (this.beatActive) {
-        if (band < 0.2) target += 0.25 + energy * 0.15; // kick area
-        else if (band > 0.35 && band < 0.7) target += 0.1; // snare area
+        if (band < 0.2) target += 0.25 + energy * 0.15;
+        else if (band > 0.35 && band < 0.7) target += 0.1;
       }
 
-      // Clamp
       target = Math.max(0.02, Math.min(1, target));
       const b = this.neonBars[i];
       b.target = target;
-
-      // Smoothing with different rise/fall
       if (target > b.v) b.v = lerp(b.v, target, attack);
       else b.v = lerp(b.v, target, decay);
 
-      // Peak hold with gravity
       b.peak = Math.max(b.peak - dt * (0.25 + (1 - dance) * 0.6), b.v);
     }
 
-    // Bars geometry
     const gap = Math.max(1, Math.floor(w / n * 0.18));
     const bw = Math.max(2, Math.floor((w - gap * (n + 1)) / Math.max(1, n)));
     const baseY = h * 0.88;
     const maxH = h * 0.72;
 
-    // Neon glow intensity decays
     this.neonGlow = Math.max(0, this.neonGlow - dt * 2.5);
     const glowPulse = 0.25 + this.neonGlow * 0.9;
 
-    // Draw stingers (downbeat sweeps)
     this.drawNeonStingers(ctx, w, h, time);
 
     ctx.save();
@@ -1795,13 +1745,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const bh = b.v * maxH;
       const y = baseY - bh;
 
-      // Bar color gradient
       const pal = this.palette.colors;
       const col = pal[i % pal.length] || this.palette.dominant;
       const c = hexToRgb(col)!;
       const hue = this.keyHueTarget ?? rgbToHsl(c).h;
 
-      // Vertical neon gradient
       const g = ctx.createLinearGradient(0, y, 0, baseY);
       const topCol = `hsla(${hue}, 92%, ${70 + (this.features.valence ?? 0.5) * 10}%, 1)`;
       const midCol = `hsla(${(hue + 12) % 360}, 88%, 55%, 0.95)`;
@@ -1810,17 +1758,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       g.addColorStop(0.6, midCol);
       g.addColorStop(1, botCol);
 
-      // Glow
       ctx.shadowBlur = 18 + glowPulse * 22;
       ctx.shadowColor = `hsla(${hue}, 100%, 60%, ${0.45 + glowPulse * 0.3})`;
       ctx.fillStyle = g;
 
-      // Rounded bar
       const r = Math.min(8, bw * 0.4);
       roundRect(ctx, x, y, bw, Math.max(2, bh), r);
       ctx.fill();
 
-      // Peak cap
       const py = baseY - Math.max(2, b.peak * maxH);
       ctx.shadowBlur = 12 + glowPulse * 14;
       ctx.shadowColor = `hsla(${(hue + 30) % 360}, 100%, 65%, 0.6)`;
@@ -1828,7 +1773,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       roundRect(ctx, x, Math.min(py, y - 2), bw, 3, 2);
       ctx.fill();
 
-      // Optional inner glow line for extra neon
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 0.25 + glowPulse * 0.2;
       ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 80%, 0.9)`;
@@ -1841,12 +1785,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
-    // Subtle scanlines overlay for retro vibe
     ctx.globalAlpha = 0.07;
     ctx.fillStyle = '#ffffff';
-    for (let yy = 0; yy < h; yy += 4) {
-      ctx.fillRect(0, yy, w, 1);
-    }
+    for (let yy = 0; yy < h; yy += 4) ctx.fillRect(0, yy, w, 1);
     ctx.globalAlpha = 1;
   }
 
@@ -1871,11 +1812,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Stained Glass Voronoi scene
+  // Stained Glass Voronoi
 
   private ensureStained(w: number, h: number) {
     if (this.sgCells.length && this.sgLastW === w && this.sgLastH === h) return;
-    // Build sites
     const N = this.reduceMotion ? 36 : 72;
     const margin = Math.min(w, h) * 0.06;
     this.sgSites = [];
@@ -1895,16 +1835,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_Stained() {
-    // Edge pulse on every beat
     this.sgPulse = Math.min(1, this.sgPulse + 0.5);
   }
 
   private onDownbeat_Stained() {
-    // Extra pulse
     this.sgPulse = 1;
-    // Sparkles along random edges
     this.spawnSparks(14 + Math.round((this.features.energy ?? 0.5) * 18));
-    // Reseed every couple of downbeats for variety
     this.sgDownbeatCounter++;
     if (this.sgDownbeatCounter % 2 === 0) {
       this.reseedStained(this.bufferA.width, this.bufferA.height);
@@ -1914,14 +1850,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     this.ensureStained(w, h);
 
-    // Background: vignetted dark base
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
     bg.addColorStop(0, '#07080b');
     bg.addColorStop(1, '#0a0a10');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Decay pulse and sparkles
     this.sgPulse = Math.max(0, this.sgPulse - dt * 2.0);
 
     const keyHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
@@ -1929,21 +1863,17 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const valence = this.features.valence ?? 0.5;
     const energy = this.features.energy ?? 0.5;
 
-    // Draw cells
     ctx.save();
     for (const cell of this.sgCells) {
       if (cell.pts.length < 3) continue;
 
-      // Tint towards key hue for cohesion
       let baseRGB = tintRgbTowardHue(cell.color, keyHue, keyAmount);
 
-      // Build path
       ctx.beginPath();
       ctx.moveTo(cell.pts[0].x, cell.pts[0].y);
       for (let i = 1; i < cell.pts.length; i++) ctx.lineTo(cell.pts[i].x, cell.pts[i].y);
       ctx.closePath();
 
-      // Fill: beveled gradient based on centroid and a pseudo-light direction
       const lightDir = { x: Math.cos(time * 0.2) * 0.6 + 0.4, y: Math.sin(time * 0.18) * 0.6 + 0.4 };
       const g = ctx.createRadialGradient(
         cell.cx + (lightDir.x - 0.5) * cell.radius * 0.8,
@@ -1964,14 +1894,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.shadowBlur = 10 + (18 + energy * 24) * (0.2 + this.sgPulse * 0.8);
       ctx.fill();
 
-      // Edge bevel stroke
       ctx.shadowBlur = 0;
       const edgeHue = (keyHue + 20) % 360;
       ctx.lineWidth = Math.max(1.2, Math.min(4, Math.sqrt(cell.radius) * 0.6));
       ctx.strokeStyle = `hsla(${edgeHue}, 90%, ${70 + valence * 10}%, ${0.35 + this.sgPulse * 0.35})`;
       ctx.stroke();
 
-      // Inner highlight stroke (adds glass glint)
       ctx.globalAlpha = 0.18 + this.sgPulse * 0.12;
       ctx.lineWidth = Math.max(0.8, ctx.lineWidth * 0.6);
       ctx.strokeStyle = `rgba(255,255,255,0.6)`;
@@ -1980,7 +1908,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
-    // Sparkles
     this.drawSparks(ctx, w, h, dt);
   }
 
@@ -2026,7 +1953,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.shadowBlur = 0;
   }
 
-  // Emo Slashes scene
+  // Emo Slashes (with collector hero support)
 
   private ensureEmoPetals(w: number, h: number) {
     const target = this.reduceMotion ? 60 : 160;
@@ -2085,10 +2012,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.spawnEmoSlash(cx, cy, count);
     this.emoGlow = Math.min(1, this.emoGlow + 0.5);
 
-    // NEW: punch the hero tilt and gleam on each beat
+    // Hero beat reactions
     this.emoHeroTiltVel += ((Math.random() - 0.5) * 0.8) * (this.reduceMotion ? 0.5 : 1);
     this.emoHeroPulse = Math.min(1, this.emoHeroPulse + 0.8);
-    this.emoHeroGleam = 0; // restart sweep
+    this.emoHeroGleam = 0;
   }
 
   private onDownbeat_EmoSlashes() {
@@ -2099,14 +2026,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.spawnEmoRipple(cx, cy);
     this.emoGlow = 1;
 
-    // Bigger tilt on downbeat
     this.emoHeroTiltVel += (Math.random() < 0.5 ? -1 : 1) * (this.reduceMotion ? 0.08 : 0.16);
     this.emoHeroPulse = 1;
     this.emoHeroGleam = 0;
   }
 
   private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Background: if a background image exists, draw cover-fit with slight blur and dim
     if (this.emoBgImg) {
       const img = this.emoBgImg;
       const cw = img.naturalWidth;
@@ -2114,28 +2039,19 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const targetAR = w / h;
       const srcAR = cw / ch;
       let sx = 0, sy = 0, sw = cw, sh = ch;
-      if (srcAR > targetAR) {
-        sw = ch * targetAR;
-        sx = (cw - sw) / 2;
-      } else {
-        sh = cw / targetAR;
-        sy = (ch - sh) / 2;
-      }
-      const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05; // gentle drift zoom
+      if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
+      else { sh = cw / targetAR; sy = (ch - sh) / 2; }
+      const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05;
       const dw = w * zoom;
       const dh = h * zoom;
       const dx = (w - dw) / 2;
       const dy = (h - dh) / 2;
 
-      // Dim and blur slightly
       const oldFilter = (ctx as any).filter ?? 'none';
-      try {
-        (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)';
-      } catch {}
+      try { (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)'; } catch {}
       ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
       try { (ctx as any).filter = oldFilter; } catch {}
 
-      // Soft vignette on top
       ctx.globalAlpha = 0.35;
       const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -2144,7 +2060,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     } else {
-      // Fallback background if no image
       const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
       const g = ctx.createLinearGradient(0, 0, w, h);
       g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
@@ -2153,7 +2068,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // Subtle drifting fog
     ctx.globalAlpha = 0.12;
     const baseHueFog = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     ctx.fillStyle = `hsla(${(baseHueFog + 200) % 360}, 50%, 60%, 1)`;
@@ -2179,7 +2093,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const p = this.emoPetals[i];
       p.life += dt;
       if (p.life >= p.ttl) {
-        // respawn
         p.x = Math.random() * w;
         p.y = -10;
         p.vx = (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5));
@@ -2202,7 +2115,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const lgt = 55 + (this.features.valence ?? 0.5) * 15;
       const col = `hsla(${(p.hue + 360) % 360}, 85%, ${lgt}%, ${p.alpha})`;
 
-      // Draw a teardrop-shaped petal
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
@@ -2216,7 +2128,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.closePath();
       ctx.fill();
 
-      // Inner vein highlight
       ctx.globalAlpha = 0.25;
       ctx.shadowBlur = 0;
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
@@ -2231,25 +2142,20 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
-    // NEW: Collector hero image (PNG with alpha)
+    // Collector hero image
     if (this.emoHeroImg) {
-      // Update tilt physics and gleam progression
-      // spring back to 0 tilt
       const tiltSpring = 6.0;
       this.emoHeroTiltVel += (-this.emoHeroTilt) * tiltSpring * dt;
-      this.emoHeroTiltVel *= 0.90; // damping
+      this.emoHeroTiltVel *= 0.90;
       this.emoHeroTilt += this.emoHeroTiltVel * dt;
 
-      // Add subtle idle sway
       const sway = (Math.sin(time * 0.6) * (this.reduceMotion ? 0.5 : 1)) * (Math.PI / 180) * 2.0;
       const tilt = this.emoHeroTilt + sway;
 
-      // Gleam sweeps from left to right over ~0.9s after a beat
       const gleamSpeed = 1 / 0.9;
       this.emoHeroGleam = Math.min(1, this.emoHeroGleam + dt * gleamSpeed);
       this.emoHeroPulse = Math.max(0, this.emoHeroPulse - dt * 1.5);
 
-      // Compute draw size
       const minDim = Math.min(w, h);
       const baseScale = this.emoHeroScale;
       const targetW = minDim * baseScale;
@@ -2259,12 +2165,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const drawH = targetW / aspect;
 
       const cx = w * 0.5;
-      const cy = h * 0.58; // slightly below center
+      const cy = h * 0.58;
 
-      // Glow pulse color ties to key hue
       const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
 
-      // Draw hero with outer glow
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(tilt);
@@ -2274,10 +2178,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.globalAlpha = 1;
 
-      // Gleam overlay clipped to hero via source-atop
-      // Wide diagonal gradient band crossing the hero
       const gleamT = this.emoHeroGleam;
-      const bandX = (gleamT - 0.2) * drawW; // start slightly off left
+      const bandX = (gleamT - 0.2) * drawW;
       ctx.globalCompositeOperation = 'source-atop';
       const g = ctx.createLinearGradient(bandX - drawW, -drawH, bandX + drawW, drawH);
       const a0 = 0;
@@ -2292,7 +2194,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.restore();
     }
 
-    // Slashes (draw above petals, but below vignette)
+    // Slashes
     this.emoGlow = Math.max(0, this.emoGlow - dt * 2.5);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -2313,7 +2215,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.translate(s.x, s.y);
       ctx.rotate(s.angle);
 
-      // Glow trail
       ctx.shadowBlur = 24 + this.emoGlow * 24;
       ctx.shadowColor = `hsla(${s.hue}, 100%, 65%, ${alpha})`;
       ctx.strokeStyle = grad;
@@ -2323,7 +2224,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.lineTo(s.len / 2, 0);
       ctx.stroke();
 
-      // Core line
       ctx.shadowBlur = 0;
       ctx.strokeStyle = `hsla(${s.hue}, 100%, 85%, ${alpha * 0.9})`;
       ctx.lineWidth = Math.max(1, lw * 0.35);
@@ -2357,7 +2257,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
     ctx.shadowBlur = 0;
 
-    // Foreground vignette
     ctx.globalAlpha = 0.25;
     const vg2 = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
     vg2.addColorStop(0, 'rgba(0,0,0,0)');
@@ -2367,7 +2266,36 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  // Lyrics: fetch + timing + UI helpers
+  // Voronoi core (fixed)
+  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
+    for (let i = 0; i < sites.length; i++) {
+      const si = sites[i];
+      let poly = B.slice();
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const sj = sites[j];
+        const mx = (si.x + sj.x) / 2;
+        const my = (si.y + sj.y) / 2;
+        const sx = sj.x - si.x;
+        const sy = sj.y - si.y;
+        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        if (poly.length === 0) break;
+      }
+      if (poly.length) {
+        let cx = 0, cy = 0;
+        for (const p of poly) { cx += p.x; cy += p.y; }
+        cx /= poly.length; cy /= poly.length;
+        let radius = 0;
+        for (const p of poly) { radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy)); }
+        cells.push({ pts: poly, cx, cy, color: si.color, radius });
+      }
+    }
+    return cells;
+  }
+
+  // Lyrics helpers and overlay rendering are below...
 
   private async refetchLyricsForCurrentTrack() {
     if (!this.lastTrackId) return;
@@ -2414,9 +2342,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       }
 
       this.lyrics = state;
-      this.currentLyricIndex = -1; // force refresh
+      this.currentLyricIndex = -1;
     } catch {
-      // Fail silently; keep fallback text
       this.lyrics = null;
       this.currentLyricIndex = -1;
     }
@@ -2427,17 +2354,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const t = this.playbackMs / 1000;
     const lines = this.lyrics.lines;
 
-    // Binary search current line
     let lo = 0, hi = lines.length - 1, idx = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) {
-        hi = mid - 1;
-      } else if (t >= lines[mid].end) {
-        lo = mid + 1;
-      } else {
-        idx = mid; break;
-      }
+      if (t < lines[mid].start) hi = mid - 1;
+      else if (t >= lines[mid].end) lo = mid + 1;
+      else { idx = mid; break; }
     }
 
     if (idx !== -1 && idx !== this.currentLyricIndex) {
@@ -2448,37 +2370,29 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private startPlaybackPolling() {
-    // Poll playback every 1000ms to sync lyrics timing across scenes (overlay etc)
     const tick = async () => {
       try {
-        // Optional cached method
         const pb = await (this.api as any).getCurrentPlaybackCached?.();
         if (pb) {
           this.hadPlaybackPoll = true;
           this.playbackIsPlaying = !!pb.is_playing;
           const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
 
-          // If track changed outside our onTrack flow, adopt it
           const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
           if (tr && tr.id && tr.id !== this.lastTrackId) {
             this.onTrack(tr).catch(() => {});
           }
 
-          // Keep local progress roughly in sync; allow small drift to animate smoothly
           const drift = Math.abs(ms - this.playbackMs);
           if (drift > 750) this.playbackMs = ms;
         }
-      } catch {
-        // Ignore polling errors; will try again next tick
-      }
+      } catch {}
     };
 
     if (this.pbPollTimer) clearInterval(this.pbPollTimer);
     this.pbPollTimer = setInterval(tick, 1000);
     tick().catch(() => {});
   }
-
-  // Lyrics overlay renderer
 
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
@@ -2487,14 +2401,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const lines = this.lyrics.lines;
     const t = this.playbackMs / 1000;
 
-    // Choose a line to show:
     let idx = this.currentLyricIndex;
     if (idx < 0) {
-      if (t < lines[0].start) {
-        idx = 0;
-      } else if (t > lines[lines.length - 1].end) {
-        idx = lines.length - 1;
-      } else {
+      if (t < lines[0].start) idx = 0;
+      else if (t > lines[lines.length - 1].end) idx = lines.length - 1;
+      else {
         idx = lines.findIndex(l => t < l.end);
         if (idx === -1) idx = lines.length - 1;
       }
@@ -2507,15 +2418,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const dur = Math.max(0.1, (line.end - line.start) || 0.1);
     let progress = 0;
-    if (t >= line.start && t <= line.end) {
-      progress = Math.max(0, Math.min(1, (t - line.start) / dur));
-    } else if (t > line.end) {
-      progress = 1;
-    } else {
-      progress = 0;
-    }
+    if (t >= line.start && t <= line.end) progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+    else if (t > line.end) progress = 1;
 
-    // Style
     const minDim = Math.min(W, H);
     const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
     const margin = Math.round(minDim * 0.05);
@@ -2524,7 +2429,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     ctx.save();
 
-    // Measure text
     const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
     ctx.font = fontFace;
     ctx.textAlign = 'center';
@@ -2535,18 +2439,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const boxH = Math.ceil(fontPx + padY * 2);
 
     const cx = W / 2;
-    const by = H - margin; // bottom baseline position
+    const by = H - margin;
     const bx = cx - boxW / 2;
-    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
+    const topY = by - boxH + Math.round(padY * 0.35);
 
-    // Background panel (for readability)
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#000';
     roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Base (unfilled) text
     ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
@@ -2554,7 +2456,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.strokeText(text, cx, by);
     ctx.fillText(text, cx, by);
 
-    // Progress highlight
     const baseHue =
       this.keyHueTarget != null && this.keyColorEnabled
         ? this.keyHueTarget
@@ -2565,7 +2466,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     grad.addColorStop(0, hi);
     grad.addColorStop(1, hi2);
 
-    // Clip to progress width relative to text
     const progW = textW * progress;
     ctx.save();
     ctx.beginPath();
@@ -2578,21 +2478,18 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillText(text, cx, by);
     ctx.restore();
 
-    // Underline progress bar
     const barY = by + Math.round(fontPx * 0.18);
     const barR = Math.round(Math.min(10, fontPx * 0.18));
     const barPad = Math.round(padX * 0.4);
     const barW = boxW - barPad * 2;
     const filled = Math.round(barW * progress);
 
-    // Track
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#fff';
     roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Fill
     const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
     barGrad.addColorStop(0, hi);
     barGrad.addColorStop(1, hi2);
@@ -2603,51 +2500,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Panels infra
-  private panelsRoot(): HTMLDivElement {
-    const root = document.getElementById('panels') as HTMLDivElement | null;
-    if (!root) {
-      const div = document.createElement('div');
-      div.id = 'panels';
-      document.body.appendChild(div);
-      return div;
-    }
-    return root;
-  }
-  private mountPanel(id: string, title: string, render: (body: HTMLDivElement) => void) {
-    const root = this.panelsRoot();
-    let panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.className = 'panel';
-      panel.dataset.id = id;
-      panel.style.position = 'absolute';
-      panel.style.right = '12px';
-      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : '208px';
-      panel.style.minWidth = '260px';
-      panel.style.zIndex = '1000';
-      panel.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <strong>${title}</strong>
-          <button class="close" aria-label="Close">✕</button>
-        </div>
-        <div class="body"></div>
-      `;
-      root.appendChild(panel);
-      panel.querySelector<HTMLButtonElement>('button.close')!.onclick = () => this.togglePanel(id, false);
-    }
-    render(panel.querySelector<HTMLDivElement>('.body')!);
-  }
-  private togglePanel(id: string, force?: boolean) {
-    const root = this.panelsRoot();
-    const panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
-    if (!panel) return;
-    const show = force ?? panel.classList.contains('hidden');
-    panel.classList.toggle('hidden', !show);
-  }
-
-  // Color helpers
-
+  // Color helpers inside class
   private mixColor(a: string, b: string, t: number) {
     const pa = hexToRgb(a);
     const pb = hexToRgb(b);
@@ -2659,20 +2512,137 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     };
     return `rgb(${c.r}, ${c.g}, ${c.b})`;
   }
+}
 
-  // Voronoi (unchanged core)
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    // Start with one big rectangle
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
-        poly
+// Utils
+
+function clampInt(v: number, min: number, max: number) {
+  return v < min ? min : v > max ? max : v | 0;
+}
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Color utils
+
+function hexToRgb(hex: string) {
+  const m = hex.trim().replace('#', '');
+  const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
+  const n = parseInt(s, 16);
+  if (Number.isNaN(n) || (s.length !== 6)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
+  const h = (n: number) => Math.max(0, Math.min(255, n | 0)).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h: number, s: number, l: number) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s));
+  l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+  else { r1 = c; g1 = 0; b1 = x; }
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255)
+  };
+}
+function shiftHueHex(hex: string, hue: number) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const { s, l } = rgbToHsl(rgb);
+  const rgb2 = hslToRgb(hue, s, l);
+  return rgbToHex(rgb2);
+}
+function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
+  return {
+    dominant: shiftHueHex(p.dominant, hue),
+    secondary: shiftHueHex(p.secondary, hue),
+    colors: p.colors.map((c) => shiftHueHex(c, hue))
+  };
+}
+function blendHex(a: string, b: string, t: number) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  if (!A || !B) return a;
+  return rgbToHex({
+    r: Math.round(A.r + (B.r - A.r) * t),
+    g: Math.round(A.g + (B.g - A.g) * t),
+    b: Math.round(A.b + (B.b - A.b) * t)
+  });
+}
+function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
+  return {
+    dominant: blendHex(a.dominant, b.dominant, t),
+    secondary: blendHex(a.secondary, b.secondary, t),
+    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
+  };
+}
+function angularDelta(current: number, target: number) {
+  return ((target - current + 540) % 360) - 180;
+}
+// Half-plane polygon clip: keep points P s.t. dot(P - M, S) <= 0
+function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
+  if (poly.length === 0) return poly;
+  const out: Array<{ x: number; y: number }> = [];
+  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
+  for (let i = 0; i < poly.length; i++) {
+    const A = poly[i];
+    const B = poly[(i + 1) % poly.length];
+    const fa = f(A.x, A.y);
+    const fb = f(B.x, B.y);
+    const ain = fa <= 0;
+    const bin = fb <= 0;
+    if (ain && bin) out.push({ x: B.x, y: B.y });
+    else if (ain && !bin) {
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) *
