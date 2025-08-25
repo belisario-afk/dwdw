@@ -35,6 +35,7 @@ export class UI {
   private recording: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private devicePoll: number | null = null;
+  private seekTimer: number | null = null;
 
   constructor(
     private auth: Auth,
@@ -68,6 +69,9 @@ export class UI {
           this.els.devpick.appendChild(opt);
           if (d.is_active && d.id) this.els.devpick.value = d.id;
         }
+        // Enable/disable transport based on whether we have any devices
+        const hasDevices = devices.length > 0;
+        this.setTransportEnabled(hasDevices);
       } catch {
         // ignore transient errors
       }
@@ -82,9 +86,18 @@ export class UI {
       this.devicePoll = null;
     }
     if (this.els.devpick) this.els.devpick.innerHTML = '';
+    this.setTransportEnabled(false);
+  }
+
+  private setTransportEnabled(on: boolean) {
+    const btns = [this.els.play, this.els.pause, this.els.prev, this.els.next];
+    btns.forEach((b) => b && (b.disabled = !on));
+    if (this.els.seek) this.els.seek.disabled = !on;
+    if (this.els.volume) this.els.volume.disabled = !on;
   }
 
   init() {
+    // Auth/UI controls
     if (this.els.login) this.els.login.onclick = () => this.auth.login();
     if (this.els.logout) this.els.logout.onclick = () => this.auth.logout();
     if (this.els.fullscreen)
@@ -93,66 +106,63 @@ export class UI {
         else document.exitFullscreen();
       };
 
+    // Transport controls
     if (this.els.play)
       this.els.play.onclick = async () => {
         if (!this.ensureAuthed()) return;
         try {
           await this.player.ensureActiveDevice();
           await this.player.resume();
-        } catch (e: any) {
-          console.debug('Play failed:', e?.message || e);
+        } catch (e) {
+          console.debug('Play failed', e);
         }
       };
-
     if (this.els.pause)
       this.els.pause.onclick = async () => {
         if (!this.ensureAuthed()) return;
         try {
           await this.player.pause();
-        } catch (e: any) {
-          // 403 is common when not permitted or nothing to pause; suppress noise
-          if (e?.status !== 403) console.debug('Pause failed:', e?.message || e);
+        } catch (e) {
+          console.debug('Pause failed', e);
         }
       };
-
     if (this.els.prev)
       this.els.prev.onclick = async () => {
         if (!this.ensureAuthed()) return;
         try {
           await this.player.previous();
-        } catch (e: any) {
-          console.debug('Previous failed:', e?.message || e);
+        } catch (e) {
+          console.debug('Previous failed', e);
         }
       };
-
     if (this.els.next)
       this.els.next.onclick = async () => {
         if (!this.ensureAuthed()) return;
         try {
           await this.player.next();
-        } catch (e: any) {
-          console.debug('Next failed:', e?.message || e);
+        } catch (e) {
+          console.debug('Next failed', e);
         }
       };
 
+    // Seek with debounce
     if (this.els.seek)
       this.els.seek.oninput = async () => {
+        const val = Number(this.els.seek!.value);
+        this.els.seek!.setAttribute('aria-valuetext', `${val / 10}%`);
         if (!this.ensureAuthed()) return;
-        try {
-          await this.player.ensureActiveDevice();
-          const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
-          if (pb?.item?.duration_ms && typeof pb.progress_ms === 'number') {
-            const ms = (Number(this.els.seek!.value) / 1000) * pb.item.duration_ms;
-            await this.player.seek(ms);
-            this.els.seek!.setAttribute(
-              'aria-valuetext',
-              `${formatTime(ms)} of ${formatTime(pb.item.duration_ms)}`
-            );
+        if (this.seekTimer) window.clearTimeout(this.seekTimer);
+        this.seekTimer = window.setTimeout(async () => {
+          try {
+            const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
+            if (pb?.item?.duration_ms) {
+              const ms = (val / 1000) * pb.item.duration_ms;
+              await this.player.seek(ms);
+            }
+          } catch (e) {
+            console.debug('Seek failed', e);
           }
-        } catch (e: any) {
-          // 404 = no active device or nothing playing; ignore
-          if (e?.status !== 404) console.debug('Seek failed:', e?.message || e);
-        }
+        }, 120);
       };
 
     if (this.els.volume)
@@ -161,11 +171,12 @@ export class UI {
         try {
           await this.player.setVolume(Number(this.els.volume!.value));
           this.els.volume!.setAttribute('aria-valuetext', `${this.els.volume!.value} percent`);
-        } catch (e: any) {
-          console.debug('Volume failed:', e?.message || e);
+        } catch (e) {
+          console.debug('Volume failed', e);
         }
       };
 
+    // Device picker
     if (this.els.devpick)
       this.els.devpick.onchange = async () => {
         if (!this.ensureAuthed()) return;
@@ -173,12 +184,13 @@ export class UI {
         if (id) {
           try {
             await this.api.transferPlayback(id, true);
-          } catch (e: any) {
-            console.debug('Transfer playback failed:', e?.message || e);
+          } catch (e) {
+            console.debug('Transfer playback failed', e);
           }
         }
       };
 
+    // Visual scene controls + panels
     if (this.els.sceneSelect)
       this.els.sceneSelect.onchange = () => {
         const scene = this.els.sceneSelect!.value;
@@ -190,10 +202,12 @@ export class UI {
     if (this.els.quality) this.els.quality.onclick = () => this.director.toggleQualityPanel();
     if (this.els.acc) this.els.acc.onclick = () => this.director.toggleAccessibilityPanel();
 
+    // FPS label from director
     this.director.on('fps', (fps) => {
       if (this.els.fpsLabel) this.els.fpsLabel.textContent = `FPS: ${Math.round(fps)}`;
     });
 
+    // React to login/logout
     this.auth.on('tokens', (tokens) => {
       if (tokens) {
         if (this.els.login) this.els.login.classList.add('hidden');
@@ -220,6 +234,9 @@ export class UI {
     } catch (e) {
       console.debug('Failed to fetch profile:', e);
     }
+    // Enable audio-reactive features after login
+    this.director.setFeaturesEnabled(true);
+
     this.startDevicePolling();
     try {
       const pb = await this.api.getCurrentPlaybackCached();
@@ -246,7 +263,12 @@ export class UI {
   }
 
   updatePlayback(pb: SpotifyApi.CurrentPlaybackResponse | null) {
-    if (!pb || !pb.item || (pb.item as any).type !== 'track') return;
+    if (!pb || !pb.item || (pb.item as any).type !== 'track') {
+      // No track; show play button
+      if (this.els.play) this.els.play.classList.remove('hidden');
+      if (this.els.pause) this.els.pause.classList.add('hidden');
+      return;
+    }
     const track = pb.item as SpotifyApi.TrackObjectFull;
     const dur = track.duration_ms || 0;
     const cur = pb.progress_ms || 0;

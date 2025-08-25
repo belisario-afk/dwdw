@@ -15,10 +15,7 @@ declare global {
   }
 }
 
-// Keep your client ID (or switch to import.meta.env.VITE_SPOTIFY_CLIENT_ID)
 const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
-
-// Build a redirect URI that works on both localhost and GitHub Pages.
 const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
 (async function boot() {
@@ -49,7 +46,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Screensaver logic
+  // Screensaver
   let idleTimer: any = null;
   function onActive() {
     clearTimeout(idleTimer);
@@ -73,30 +70,29 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     ui.setGPULabel(String(renderer));
   } catch {}
 
-  // Handle OAuth callback (tolerant) and attempt restore.
+  // Auth flows
   await auth.handleRedirectCallback();
   await auth.restore();
 
-  // Authed flows
+  // Enable audio reactive visuals by default after login
+  if (auth.getAccessToken()) director.setFeaturesEnabled(true);
+
+  // Playback polling + palette application
   let started = false;
   let pollTimer: any = null;
   let lastTrackId: string | null = null;
-
-  function resetTrackState() {
-    lastTrackId = null;
-  }
 
   async function handlePlaybackUpdate() {
     if (!auth.getAccessToken()) return;
     const pb = await api.getCurrentPlaybackCached().catch(() => null);
     ui.updatePlayback(pb);
 
-    // Track-change detection and visual updates
     if (pb && pb.item && (pb.item as any).type === 'track') {
       const track = pb.item as SpotifyApi.TrackObjectFull;
       if (track.id !== lastTrackId) {
         lastTrackId = track.id;
 
+        // Palette from album art
         const img = track.album?.images?.[0]?.url || null;
         if (img) {
           try {
@@ -108,11 +104,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
           }
         }
 
-        try {
-          await director.onTrack(track);
-        } catch (e) {
-          console.debug('Director onTrack failed:', e);
-        }
+        // Inform director of new track (will fetch features if enabled)
+        await director.onTrack(track).catch(() => {});
       }
     }
   }
@@ -120,19 +113,12 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   async function startAuthedFlows() {
     if (started) return;
     started = true;
-
     await ui.postLogin().catch(() => {});
-
-    // Initial update
     await handlePlaybackUpdate().catch(() => {});
-
-    // Periodic updates
     pollTimer = setInterval(async () => {
       try {
         await handlePlaybackUpdate();
-      } catch {
-        // swallow to avoid console spam
-      }
+      } catch {}
     }, 1000);
   }
 
@@ -143,13 +129,16 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       clearInterval(pollTimer);
       pollTimer = null;
     }
-    resetTrackState();
+    lastTrackId = null;
   }
 
-  // Kick off if we already have tokens, and react to login/logout
-  if (auth.isAuthenticated()) startAuthedFlows();
+  if (auth.getAccessToken()) startAuthedFlows();
   auth.on('tokens', (t) => {
-    if (t) startAuthedFlows();
-    else stopAuthedFlows();
+    if (t) {
+      director.setFeaturesEnabled(true);
+      startAuthedFlows();
+    } else {
+      stopAuthedFlows();
+    }
   });
 })();
