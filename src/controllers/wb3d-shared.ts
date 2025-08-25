@@ -14,7 +14,7 @@ export function createProgram(gl: WebGLRenderingContext | WebGL2RenderingContext
     gl.deleteShader(fs);
     throw new Error(`GL link error: ${log}`);
   }
-  // Shaders can be deleted after successful link
+  // Cleanup shaders after successful link
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   return prog;
