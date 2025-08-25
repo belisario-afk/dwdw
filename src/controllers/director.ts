@@ -167,6 +167,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private flowMag: Float32Array | null = null; // magnitude 0..1
   private flowOverlayCanvas: HTMLCanvasElement | null = null;
   private flowImageCanvas: HTMLCanvasElement | null = null; // color sampling
+  private flowImageCtx: CanvasRenderingContext2D | null = null;
 
   private flowParticles: FlowP[] = [];
   private flowSprites: FlowSprite[] = [];
@@ -219,8 +220,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const a = this.bufferA.getContext('2d');
     const b = this.bufferB.getContext('2d');
     if (!a || !b) throw new Error('2D buffer context not available');
-    this.bufCtxA = a;
-    this.bufCtxB = b;
+    this.bufCtxA = a!;
+    this.bufCtxB = b!;
 
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
@@ -296,6 +297,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.albumImg = null;
       this.flowOverlayCanvas = null;
       this.flowImageCanvas = null;
+      this.flowImageCtx = null;
       // Recolor Voronoi with palette
       this.sgLastW = 0; this.sgLastH = 0;
     }
@@ -1043,7 +1045,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const sf = Math.min(w * 0.8, h * 0.32);
     if (!this.textField) this.textField = document.createElement('canvas');
     this.textField.width = w; this.textField.height = h;
-    const tctx = this.textField.getContext('2d')!;
+    // Use willReadFrequently; we call getImageData right after drawing text
+    const tctx = this.textField.getContext('2d', { willReadFrequently: true } as any)!;
     tctx.clearRect(0, 0, w, h);
     tctx.fillStyle = '#fff';
     tctx.textAlign = 'center';
@@ -1223,14 +1226,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     o.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
 
     const imgData = o.getImageData(0, 0, w, h);
-    const data = imgData.data;
 
     // Keep a copy for color sampling (upscaled later)
     this.flowImageCanvas = document.createElement('canvas');
     this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
-    this.flowImageCanvas.getContext('2d')!.putImageData(imgData, 0, 0);
+    this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as any)!;
+    this.flowImageCtx.putImageData(imgData, 0, 0);
 
     // Grayscale luminance
+    const data = imgData.data;
     const lum = new Float32Array(w * h);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
@@ -1587,7 +1591,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private sampleImageColor(x: number, y: number, w: number, h: number) {
-    if (!this.flowImageCanvas) {
+    if (!this.flowImageCanvas || !this.flowImageCtx) {
       const c = hexToRgb(this.palette.dominant)!;
       return c;
     }
@@ -1595,8 +1599,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const fy = Math.max(0, Math.min(1, y / h));
     const px = Math.floor(fx * (this.flowImageCanvas.width - 1));
     const py = Math.floor(fy * (this.flowImageCanvas.height - 1));
-    const ctx = this.flowImageCanvas.getContext('2d')!;
-    const d = ctx.getImageData(px, py, 1, 1).data;
+    const d = this.flowImageCtx.getImageData(px, py, 1, 1).data;
     return { r: d[0], g: d[1], b: d[2] };
   }
 
@@ -2008,6 +2011,218 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
 
     return out;
+  }
+
+  // Lyrics: fetch + timing + UI helpers
+
+  private async refetchLyricsForCurrentTrack() {
+    if (!this.lastTrackId) return;
+    try {
+      const pb = await (this.api as any).getCurrentPlaybackCached?.().catch(() => null);
+      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
+      if (tr) return this.fetchLyricsLRCLIB(tr);
+    } catch {}
+  }
+
+  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
+    try {
+      const trackName = track.name || '';
+      const artistName = (track.artists || []).map(a => a.name).join(', ');
+      const albumName = track.album?.name || '';
+      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
+
+      const params = new URLSearchParams();
+      if (trackName) params.set('track_name', trackName);
+      if (artistName) params.set('artist_name', artistName);
+      if (albumName) params.set('album_name', albumName);
+      if (durationSec) params.set('duration', String(durationSec));
+
+      const url = `https://lrclib.net/api/search?${params.toString()}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
+      const data = await res.json();
+
+      let synced = '';
+      let plain = '';
+      if (Array.isArray(data) && data.length) {
+        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
+        synced = best?.syncedLyrics || '';
+        plain = best?.plainLyrics || '';
+      }
+
+      let state: LyricsState | null = null;
+      if (synced && typeof synced === 'string') {
+        const lines = parseLRC(synced);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
+      } else if (plain && typeof plain === 'string') {
+        const lines = parsePlainLyrics(plain, durationSec);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
+      }
+
+      this.lyrics = state;
+      this.currentLyricIndex = -1; // force refresh
+    } catch {
+      // Fail silently; keep fallback text
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
+    }
+  }
+
+  private updateCurrentLyricLine() {
+    if (!this.lyrics || !this.lyrics.lines.length) return;
+    const t = this.playbackMs / 1000;
+    const lines = this.lyrics.lines;
+
+    // Binary search current line
+    let lo = 0, hi = lines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < lines[mid].start) {
+        hi = mid - 1;
+      } else if (t >= lines[mid].end) {
+        lo = mid + 1;
+      } else {
+        idx = mid; break;
+      }
+    }
+
+    if (idx !== -1 && idx !== this.currentLyricIndex) {
+      this.currentLyricIndex = idx;
+      const text = lines[idx].text || '';
+      if (text.trim()) this.setLyricText(text);
+    }
+  }
+
+  private startPlaybackPolling() {
+    // Poll playback every 1000ms to sync lyrics timing across scenes (overlay etc)
+    const tick = async () => {
+      try {
+        // Optional cached method
+        const pb = await (this.api as any).getCurrentPlaybackCached?.();
+        if (pb) {
+          this.playbackIsPlaying = !!pb.is_playing;
+          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
+
+          // If track changed outside our onTrack flow, adopt it
+          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
+          if (tr && tr.id && tr.id !== this.lastTrackId) {
+            this.onTrack(tr).catch(() => {});
+          }
+
+          // Keep local progress roughly in sync; allow small drift to animate smoothly
+          const drift = Math.abs(ms - this.playbackMs);
+          if (drift > 750) this.playbackMs = ms;
+        }
+      } catch {
+        // Ignore polling errors; will try again next tick
+      }
+    };
+
+    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
+    this.pbPollTimer = setInterval(tick, 1000);
+    tick().catch(() => {});
+  }
+
+  // Lyrics overlay renderer
+
+  private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    if (!this.lyricsOverlayEnabled) return;
+    if (!this.lyrics || !this.lyrics.lines.length || this.currentLyricIndex < 0) return;
+
+    const line = this.lyrics.lines[this.currentLyricIndex];
+    const text = (line?.text || '').trim();
+    if (!text) return;
+
+    const t = this.playbackMs / 1000;
+    const dur = Math.max(0.1, (line.end - line.start) || 0.1);
+    const progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+
+    // Style
+    const minDim = Math.min(W, H);
+    const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
+    const margin = Math.round(minDim * 0.05);
+    const padX = Math.round(fontPx * 0.6);
+    const padY = Math.round(fontPx * 0.45);
+
+    ctx.save();
+
+    // Measure text
+    const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    ctx.font = fontFace;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const metrics = ctx.measureText(text);
+    const textW = metrics.width;
+    const boxW = Math.min(W - margin * 2, Math.ceil(textW + padX * 2));
+    const boxH = Math.ceil(fontPx + padY * 2);
+
+    const cx = W / 2;
+    const by = H - margin; // bottom baseline position
+    const bx = cx - boxW / 2;
+    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
+
+    // Background panel (for readability)
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#000';
+    roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Base (unfilled) text
+    ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.shadowColor = 'transparent';
+    ctx.strokeText(text, cx, by);
+    ctx.fillText(text, cx, by);
+
+    // Progress highlight
+    const baseHue =
+      this.keyHueTarget != null && this.keyColorEnabled
+        ? this.keyHueTarget
+        : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
+    const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
+    const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
+    grad.addColorStop(0, hi);
+    grad.addColorStop(1, hi2);
+
+    // Clip to progress width relative to text
+    const progW = textW * progress;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - textW / 2, by - fontPx, Math.max(0, progW), fontPx * 1.2);
+    ctx.clip();
+
+    ctx.fillStyle = grad;
+    ctx.shadowColor = hi;
+    ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
+    ctx.fillText(text, cx, by);
+    ctx.restore();
+
+    // Underline progress bar
+    const barY = by + Math.round(fontPx * 0.18);
+    const barR = Math.round(Math.min(10, fontPx * 0.18));
+    const barPad = Math.round(padX * 0.4);
+    const barW = boxW - barPad * 2;
+    const filled = Math.round(barW * progress);
+
+    // Track
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Fill
+    const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
+    barGrad.addColorStop(0, hi);
+    barGrad.addColorStop(1, hi2);
+    ctx.fillStyle = barGrad;
+    roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
+    ctx.fill();
+
+    ctx.restore();
   }
 
   // Panels infra

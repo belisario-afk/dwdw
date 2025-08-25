@@ -167,7 +167,11 @@
     <div id="panels" aria-live="polite" aria-relevant="additions removals"></div>
     <div id="screensaver" aria-hidden="true"></div>
 
-    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script>
+      // Prevent early SDK throw if the script loads before main.ts sets this.
+      window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
+    </script>
+    <script src="https://sdk.scdn.co/spotify-player.js" async></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
