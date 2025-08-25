@@ -7,6 +7,11 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>dwdw</title>
+
+    <!-- Favicon (prevents 404) -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate icon" href="/favicon.ico" />
+
     <style>
       :root {
         --bg: #0b0b0f;
@@ -168,7 +173,7 @@
     <div id="screensaver" aria-hidden="true"></div>
 
     <script>
-      // Prevent early SDK throw if the script loads before main.ts sets this.
+      // Prevent "onSpotifyWebPlaybackSDKReady is not defined" if SDK loads early.
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
