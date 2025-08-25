@@ -100,7 +100,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private sceneName: string = 'Auto';
 
-  // Palettes
+  // Palettes: base from album art, working is what we actually render
   private basePalette: UIPalette = {
     dominant: '#22cc88',
     secondary: '#cc2288',
@@ -126,19 +126,19 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private nextBeatTime = 0;        // seconds since start
   private lastBeatTime = -1;
   private beatActive = false;
-  private beatCount = 0;
+  private beatCount = 0;           // counts beats to detect downbeats (every 4 beats)
 
-  // Downbeats
+  // Downbeats (every 4 beats by default if analysis not used)
   private downbeatEvery = 4;
 
-  // Key hue morph
+  // Key-to-hue palette morph
   private keyHueTarget: number | null = null;
   private keyHueCurrent: number = 0;
 
   // Confetti
   private confetti: Confetti[] = [];
 
-  // Lyric Lines
+  // Lyric Lines scene
   private lyricText = 'DWDW';
   private textField: HTMLCanvasElement | null = null;
   private textPoints: Array<{ x: number; y: number }> = [];
@@ -146,33 +146,33 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private lastTextW = 0;
   private lastTextH = 0;
 
-  // Lyrics state
+  // Karaoke/lyrics state
   private lyricsAutoFetch = true;
   private lyrics: LyricsState | null = null;
   private currentLyricIndex = -1;
 
-  // Lyrics overlay
+  // Lyrics overlay settings
   private lyricsOverlayEnabled = true;
   private lyricsOverlayScale = 1.0;
 
-  // Playback progress
+  // Playback progress (for lyrics timing)
   private playbackMs = 0;
   private playbackIsPlaying = false;
   private pbPollTimer: any = null;
   private hadPlaybackPoll = false;
 
-  // Beat Ball
+  // Beat Ball scene
   private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
 
-  // Album art flow field
+  // Album art flow field + image sampler
   private albumArtUrl: string | null = null;
-  private albumImg: HTMLImageElement | null = null;
+  private albumImg: HTMLImageElement | null = null; // original image for sprites
   private flowW = 0;
   private flowH = 0;
-  private flowVec: Float32Array | null = null; // [vx, vy]
-  private flowMag: Float32Array | null = null; // 0..1 strength
+  private flowVec: Float32Array | null = null; // [vx, vy] per texel (tangent)
+  private flowMag: Float32Array | null = null; // magnitude 0..1
   private flowOverlayCanvas: HTMLCanvasElement | null = null;
-  private flowImageCanvas: HTMLCanvasElement | null = null;
+  private flowImageCanvas: HTMLCanvasElement | null = null; // color sampling
   private flowImageCtx: CanvasRenderingContext2D | null = null;
 
   private flowParticles: FlowP[] = [];
@@ -191,22 +191,22 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     spriteBeatBurst: true
   };
 
-  // Neon Bars
+  // Neon Bars state
   private neonBars: NeonBar[] = [];
   private neonGlow = 0;
   private neonStingers: Stinger[] = [];
   private neonLastLayoutW = 0;
 
-  // Stained Glass Voronoi
+  // Stained Glass Voronoi state
   private sgSites: SGSite[] = [];
   private sgCells: SGCell[] = [];
   private sgLastW = 0;
   private sgLastH = 0;
-  private sgPulse = 0;
+  private sgPulse = 0; // 0..1 neon edge pulse
   private sgSparkles: Sparkle[] = [];
-  private sgDownbeatCounter = 0;
+  private sgDownbeatCounter = 0; // reseed occasionally
 
-  // Emo Slashes
+  // Emo Slashes scene state
   private emoPetals: EmoPetal[] = [];
   private emoSlashes: EmoSlash[] = [];
   private emoRipples: EmoRipple[] = [];
@@ -220,22 +220,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.canvas.style.display = 'block';
     this.canvas.style.width = '100%';
     this.canvas.style.height = '100%';
-    (document.getElementById('canvas-host') || document.body).appendChild(this.canvas);
+    const host = document.getElementById('canvas-host') || document.body;
+    host.appendChild(this.canvas);
 
     const c2d = this.canvas.getContext('2d');
     if (!c2d) throw new Error('2D context not available');
     this.ctx = c2d;
 
-    // Offscreen buffers
     this.bufferA = document.createElement('canvas');
     this.bufferB = document.createElement('canvas');
     const a = this.bufferA.getContext('2d');
     const b = this.bufferB.getContext('2d');
     if (!a || !b) throw new Error('2D buffer context not available');
-    this.bufCtxA = a;
-    this.bufCtxB = b;
+    this.bufCtxA = a!;
+    this.bufCtxB = b!;
 
-    // Resize handler
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
       const h = Math.max(360, Math.floor(window.innerHeight));
@@ -245,33 +244,39 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.bufferA.width = bw; this.bufferA.height = bh;
       this.bufferB.width = bw; this.bufferB.height = bh;
 
-      // Lyric field
+      // Rebuild text field for lyric scene
       this.prepareTextField(this.lyricText, bw, bh);
-
-      // Beat Ball reset
+      // Reset ball to center
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
 
-      // Flow field
+      // Adjust defaults by motion for Flow Field
       this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
       this.ensureFlowParticles();
       this.ensureFlowSprites();
 
+      // Reset Neon Bars layout cache to recompute bar count on next draw
       this.neonLastLayoutW = 0;
 
-      // Stained Glass rebuild
+      // Mark SG Voronoi for rebuild
       this.sgLastW = 0; this.sgLastH = 0;
 
-      // Emo petals reseed
+      // Emo Slashes: re-seed petals for new size
       this.ensureEmoPetals(bw, bh);
     };
     window.addEventListener('resize', onResize);
     onResize();
 
+    // Initialize beat schedule
     this.recomputeBeatSchedule();
+
+    // Start internal playback polling for lyrics timing
     this.startPlaybackPolling();
+
     this.start();
   }
+
+  // Public API
 
   getCanvas(): HTMLCanvasElement { return this.canvas; }
 
@@ -281,6 +286,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.emit('palette', p);
   }
 
+  // New: set album art for Flow Field scene and color sampling
   async setAlbumArt(url: string | null) {
     if (!url || url === this.albumArtUrl) return;
     this.albumArtUrl = url;
@@ -288,14 +294,17 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const img = await loadImage(url);
       this.albumImg = img;
       await this.buildFlowField(img);
+      // Reset particles/sprites to take advantage of new field
       this.flowParticles = [];
       this.flowSprites = [];
       if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
         this.ensureFlowParticles();
         this.ensureFlowSprites();
       }
+      // Recolor Voronoi cells on next draw
       this.sgLastW = 0; this.sgLastH = 0;
     } catch {
+      // If art fails (CORS/404), clear field so scene uses procedural fallback
       this.flowVec = null;
       this.flowMag = null;
       this.flowW = 0;
@@ -304,6 +313,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.flowOverlayCanvas = null;
       this.flowImageCanvas = null;
       this.flowImageCtx = null;
+      // Recolor Voronoi with palette
       this.sgLastW = 0; this.sgLastH = 0;
     }
   }
@@ -329,7 +339,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <button data-q="med">Medium</button>
           <button data-q="high">High</button>
           <span style="opacity:.8;font-size:12px;">Render scale: ${this.renderScale}</span>
-        </div>`;
+        </div>
+      `;
       panel.querySelectorAll('button[data-q]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const q = (btn as HTMLButtonElement).dataset.q!;
@@ -350,29 +361,36 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <input id="reduce-motion" type="checkbox" ${this.reduceMotion ? 'checked' : ''} />
           <span>Reduce motion</span>
         </label>
+
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
           <input id="audio-reactive" type="checkbox" ${this.featuresEnabled ? 'checked' : ''} />
           <span>Audio reactive effects</span>
         </label>
+
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
           <input id="key-color" type="checkbox" ${this.keyColorEnabled ? 'checked' : ''} />
           <span>Key color sync</span>
         </label>
+
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
           <input id="auto-scene" type="checkbox" ${this.autoSceneOnDownbeat ? 'checked' : ''} />
           <span>Downbeat scene switching (Auto scene)</span>
         </label>
+
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
           <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
           <span>Beat confetti</span>
         </label>
+
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
           <button id="open-flow-panel">Configure Flow Field…</button>
           <button id="open-lyrics-panel">Lyrics…</button>
-        </div>`;
+        </div>
+      `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
           this.reduceMotion = (e.target as HTMLInputElement).checked;
+          // Update flow particle default
           this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
           this.ensureFlowParticles();
           this.togglePanel('access', false);
@@ -429,12 +447,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
               <option value="image" ${s.colorMode==='image'?'selected':''}>Sample from cover</option>
             </select>
           </label>
+
           <label style="display:flex;gap:8px;align-items:center;">
             <input id="ff-edge" type="checkbox" ${s.edgeOverlay?'checked':''}/> Edge overlay
           </label>
+
           <label>Swirl fallback blend:
             <input id="ff-swirl" type="range" min="0" max="1" step="0.05" value="${s.swirlAmount}"><span id="ff-swirl-val">${s.swirlAmount.toFixed(2)}</span>
           </label>
+
           <fieldset style="border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;">
             <legend>Tiny covers</legend>
             <label style="display:flex;gap:8px;align-items:center;">
@@ -452,7 +473,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
               <input id="ff-sprite-beat" type="checkbox" ${s.spriteBeatBurst?'checked':''}/> Burst on beats
             </label>
           </fieldset>
-        </div>`;
+        </div>
+      `;
+
+      // Wire inputs
       panel.querySelector<HTMLInputElement>('#ff-count')!.oninput = (e) => {
         const v = Number((e.target as HTMLInputElement).value);
         this.flowSettings.particleCount = v;
@@ -510,17 +534,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
             <input id="lyr-auto" type="checkbox" ${this.lyricsAutoFetch ? 'checked' : ''}/>
             <span>Auto‑fetch lyrics (LRCLIB)</span>
           </label>
+
           <label style="display:flex;gap:8px;align-items:center;">
             <input id="lyr-overlay" type="checkbox" ${this.lyricsOverlayEnabled ? 'checked' : ''}/>
             <span>Show lyrics overlay</span>
           </label>
+
           <label>Overlay size:
             <input id="lyr-size" type="range" min="0.7" max="1.6" step="0.05" value="${this.lyricsOverlayScale}">
             <span id="lyr-size-val">${this.lyricsOverlayScale.toFixed(2)}x</span>
           </label>
+
           <div style="font-size:12px;opacity:.8;">
             Provider: LRCLIB (synced when available). We don't scrape lyrics sites.
           </div>
+
           <div id="lyr-status" style="font-size:12px;opacity:.9;">
             ${this.lyrics?.lines?.length ? `Loaded ${this.lyrics.lines.length} line(s)${this.lyrics.synced ? ' (synced)' : ''}.` : 'No lyrics loaded.'}
           </div>
@@ -528,7 +556,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
             <button id="lyr-refetch">Refetch for current track</button>
             <button id="lyr-clear">Clear</button>
           </div>
-        </div>`;
+        </div>
+      `;
       panel.querySelector<HTMLInputElement>('#lyr-auto')!
         .addEventListener('change', (e) => {
           this.lyricsAutoFetch = (e.target as HTMLInputElement).checked;
@@ -575,21 +604,31 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.prepareTextField(this.lyricText, this.bufferA.width, this.bufferA.height);
   }
 
+  // Track hook
   async onTrack(track: SpotifyApi.TrackObjectFull | null) {
     if (!track) return;
 
+    // Update lyric text to "Track — Artist"
     const artist = (track.artists && track.artists.length) ? track.artists.map(a => a.name).join(', ') : '';
     this.setLyricText(`${track.name}${artist ? ' — ' + artist : ''}`);
 
+    // Reset beat phase on new track
     this.beatCount = 0;
+
+    // Track duration and reset overlay timing
     this.lastTrackDurationMs = track.duration_ms ?? 0;
     this.playbackMs = 0;
     this.currentLyricIndex = -1;
+
+    // Assume playing until SDK tells us otherwise (soft clock)
     this.playbackIsPlaying = true;
     this.hadPlaybackPoll = false;
 
+    // Flow field / album sampler: set new album art if available
     const art = track.album?.images?.[0]?.url || null;
-    if (art) this.setAlbumArt(art).catch(() => {});
+    if (art) {
+      this.setAlbumArt(art).catch(() => {});
+    }
 
     if (!track.id || (track as any).is_local) {
       this.lastTrackId = null;
@@ -603,6 +642,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.lastTrackId === track.id) return;
     this.lastTrackId = track.id;
 
+    // Lyrics auto-fetch
     if (this.lyricsAutoFetch) {
       this.fetchLyricsLRCLIB(track).catch(() => {});
     } else {
@@ -627,20 +667,24 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       };
       this.recomputeBeatSchedule();
 
+      // Setup key hue target for palette morph
       if (typeof this.features.key === 'number') {
-        const baseHue = (this.features.key % 12) * 30;
-        const modeAdj = (this.features.mode ?? 1) === 1 ? 0 : -15;
+        const baseHue = (this.features.key % 12) * 30; // map 12 keys to 360°
+        const modeAdj = (this.features.mode ?? 1) === 1 ? 0 : -15; // minor shifts slightly cooler
         this.keyHueTarget = ((baseHue + modeAdj) + 360) % 360;
         this.keyHueCurrent = this.keyHueTarget;
       } else {
         this.keyHueTarget = null;
       }
     } catch {
+      // Back off features if forbidden
       this.features = {};
       this.featuresBackoffUntil = Date.now() + 5 * 60 * 1000;
       this.recomputeBeatSchedule();
     }
   }
+
+  // Internals
 
   private recomputeBeatSchedule() {
     const bpm = this.featuresEnabled && this.features.tempo ? this.features.tempo : 120;
@@ -651,14 +695,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private setRenderScale(s: number) {
     this.renderScale = Math.max(0.4, Math.min(1, s));
-    window.dispatchEvent(new Event('resize'));
+    const evt = new Event('resize');
+    window.dispatchEvent(evt);
   }
 
   private start() {
     if (this.running) return;
     this.running = true;
     this.lastT = performance.now();
-
+    // Initialize ball direction
     this.ball.x = this.canvas.width / 2;
     this.ball.y = this.canvas.height / 2;
     this.randomizeBallDirection();
@@ -669,6 +714,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.lastT = t;
       this.render(dt, t / 1000);
 
+      // FPS
       this.fpsAccum += dt; this.fpsCount++;
       if (this.fpsAccum >= 0.5) {
         const fps = this.fpsCount / this.fpsAccum;
@@ -681,11 +727,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private render(dt: number, time: number) {
+    // Update local playback progress for lyric timing.
     if (this.playbackIsPlaying || (!this.hadPlaybackPoll && this.lyrics)) {
       this.playbackMs += dt * 1000;
     }
 
+    // Beats
     this.updateBeat(time);
+
+    // Key hue palette morph
     this.updateKeyPalette(dt);
 
     const W = this.canvas.width;
@@ -696,10 +746,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const curName = this.sceneName;
     const nextName = this.nextSceneName;
 
+    // Update current lyric line (if any)
     this.updateCurrentLyricLine();
 
+    // Draw current scene into buffer A
     this.drawScene(this.bufCtxA, bw, bh, time, dt, curName);
 
+    // Crossfade if needed
     if (this.crossfadeT > 0 && nextName) {
       this.drawScene(this.bufCtxB, bw, bh, time, dt, nextName);
       const t = 1 - this.crossfadeT / this.crossfadeDur;
@@ -721,9 +774,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ctx.drawImage(this.bufferA, 0, 0, W, H);
     }
 
+    // Confetti overlay
     this.drawConfetti(this.ctx, W, H, dt);
+
+    // Lyrics overlay (on top of everything)
     this.drawLyricsOverlay(this.ctx, W, H);
 
+    // Scene label
     this.ctx.fillStyle = '#ffffff88';
     this.ctx.font = '12px system-ui, sans-serif';
     this.ctx.textAlign = 'right';
@@ -738,15 +795,29 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.nextBeatTime += this.beatInterval;
       this.beatCount++;
 
+      // Beat hooks
       this.onBeat_Common();
 
-      if (this.sceneName === 'Beat Ball' || this.nextSceneName === 'Beat Ball') this.onBeat_Ball();
-      if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') this.onBeat_LyricLines();
-      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') this.onBeat_FlowField();
-      if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') this.onBeat_NeonBars();
-      if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') this.onBeat_Stained();
-      if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') this.onBeat_EmoSlashes();
+      if (this.sceneName === 'Beat Ball' || this.nextSceneName === 'Beat Ball') {
+        this.onBeat_Ball();
+      }
+      if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') {
+        this.onBeat_LyricLines();
+      }
+      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
+        this.onBeat_FlowField();
+      }
+      if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
+        this.onBeat_NeonBars();
+      }
+      if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') {
+        this.onBeat_Stained();
+      }
+      if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') {
+        this.onBeat_EmoSlashes();
+      }
 
+      // Downbeat every N beats
       if (this.beatCount % this.downbeatEvery === 1) {
         this.onDownbeat();
       }
@@ -754,6 +825,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_Common() {
+    // Small confetti burst every beat
     if (this.beatConfettiEnabled) {
       const energy = this.features.energy ?? 0.5;
       const count = Math.round(8 + energy * 14);
@@ -762,16 +834,25 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onDownbeat() {
+    // Extra confetti on downbeat
     if (this.beatConfettiEnabled) {
       const energy = this.features.energy ?? 0.5;
       const count = Math.round(18 + energy * 30);
       this.spawnConfetti(count, 1.0);
     }
 
-    if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') this.onDownbeat_NeonBars();
-    if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') this.onDownbeat_Stained();
-    if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') this.onDownbeat_EmoSlashes();
+    // Scene-specific downbeat
+    if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
+      this.onDownbeat_NeonBars();
+    }
+    if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') {
+      this.onDownbeat_Stained();
+    }
+    if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') {
+      this.onDownbeat_EmoSlashes();
+    }
 
+    // Auto scene switching only when current mode is Auto
     if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
       const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars', 'Stained Glass Voronoi', 'Emo Slashes'];
       const pick = choices[(Math.random() * choices.length) | 0];
@@ -779,21 +860,44 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // Scene router
+  // Scenes
+
   private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
     switch (name) {
-      case 'Lyric Lines': this.drawLyricLines(ctx, w, h, time, dt); break;
-      case 'Beat Ball': this.drawBeatBall(ctx, w, h, time, dt); break;
-      case 'Flow Field': this.drawFlowField(ctx, w, h, time, dt); break;
-      case 'Neon Bars': this.drawNeonBars(ctx, w, h, time, dt); break;
-      case 'Stained Glass Voronoi': this.drawStainedGlassVoronoi(ctx, w, h, time, dt); break;
-      case 'Emo Slashes': this.drawEmoSlashes(ctx, w, h, time, dt); break;
-      case 'Particles': this.drawParticles(ctx, w, h, time, dt); break;
-      case 'Tunnel': this.drawTunnel(ctx, w, h, time, dt); break;
-      case 'Terrain': this.drawTerrain(ctx, w, h, time, dt); break;
-      case 'Typography': this.drawTypography(ctx, w, h, time, dt); break;
+      case 'Lyric Lines':
+        this.drawLyricLines(ctx, w, h, time, dt);
+        break;
+      case 'Beat Ball':
+        this.drawBeatBall(ctx, w, h, time, dt);
+        break;
+      case 'Flow Field':
+        this.drawFlowField(ctx, w, h, time, dt);
+        break;
+      case 'Neon Bars':
+        this.drawNeonBars(ctx, w, h, time, dt);
+        break;
+      case 'Stained Glass Voronoi':
+        this.drawStainedGlassVoronoi(ctx, w, h, time, dt);
+        break;
+      case 'Emo Slashes':
+        this.drawEmoSlashes(ctx, w, h, time, dt);
+        break;
+      case 'Particles':
+        this.drawParticles(ctx, w, h, time, dt);
+        break;
+      case 'Tunnel':
+        this.drawTunnel(ctx, w, h, time, dt);
+        break;
+      case 'Terrain':
+        this.drawTerrain(ctx, w, h, time, dt);
+        break;
+      case 'Typography':
+        this.drawTypography(ctx, w, h, time, dt);
+        break;
       case 'Auto':
-      default: this.drawAuto(ctx, w, h, time, dt); break;
+      default:
+        this.drawAuto(ctx, w, h, time, dt);
+        break;
     }
   }
 
@@ -828,6 +932,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private drawParticles(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     const energy = this.features.energy ?? 0.6;
+    const speed = (this.reduceMotion ? 20 : 60) * (0.5 + energy);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.fillRect(0, 0, w, h);
@@ -910,6 +1015,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
+  // Lyric Lines
   private drawLyricLines(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     if (!this.textField || this.lastTextW !== w || this.lastTextH !== h) {
       this.prepareTextField(this.lyricText, w, h);
@@ -921,11 +1027,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillStyle = 'rgba(0,0,0,0.1)';
     ctx.fillRect(0, 0, w, h);
 
+    const targetPts = this.textPoints;
     const stiffness = this.beatActive ? 8 : 4;
     const noise = this.reduceMotion ? 0.1 : 0.25;
 
     for (const a of this.lyricAgents) {
-      const t = this.textPoints[a.target];
+      const t = targetPts[a.target];
       if (t) {
         const dx = t.x - a.x;
         const dy = t.y - a.y;
@@ -999,6 +1106,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     });
   }
 
+  // Beat Ball
   private drawBeatBall(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     const grad = ctx.createLinearGradient(0, 0, w, h);
     const lastCol = this.palette.colors[this.palette.colors.length - 1] || this.palette.secondary;
@@ -1046,13 +1154,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.randomizeBallDirection();
     this.ball.hue = (this.ball.hue + 47) % 360;
   }
-
   private randomizeBallDirection() {
     const ang = Math.random() * Math.PI * 2;
     this.ball.vx = Math.cos(ang);
     this.ball.vy = Math.sin(ang);
   }
 
+  // Confetti overlay
   private spawnConfetti(count: number, power: number) {
     const W = this.canvas.width, H = this.canvas.height;
     const baseHue =
@@ -1087,7 +1195,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       if (p.life >= p.max) { this.confetti.splice(i, 1); continue; }
       const t = p.life / p.max;
       p.x += p.vx * dt;
-      p.y += p.vy * dt + 60 * dt;
+      p.y += p.vy * dt + 60 * dt; // gravity
       p.vx *= 0.98; p.vy *= 0.98;
 
       ctx.globalAlpha = 1 - t;
@@ -1100,6 +1208,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
+  // Key color morph
   private updateKeyPalette(dt: number) {
     if (!this.keyColorEnabled || this.keyHueTarget == null) return;
     const delta = angularDelta(this.keyHueCurrent, this.keyHueTarget);
@@ -1112,34 +1221,50 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.palette = blendPalettes(this.basePalette, shifted, mixAmt);
   }
 
+  // Flow Field: build vector field from album art using Sobel edges
   private async buildFlowField(img: HTMLImageElement) {
+    // Choose a compact field size for performance
     const maxDim = this.reduceMotion ? 112 : 160;
     const aspect = img.naturalWidth / img.naturalHeight;
     let w = 0, h = 0;
-    if (aspect >= 1) { w = maxDim; h = Math.max(16, Math.round(maxDim / aspect)); }
-    else { h = maxDim; w = Math.max(16, Math.round(maxDim * aspect)); }
+    if (aspect >= 1) { // wide
+      w = maxDim;
+      h = Math.max(16, Math.round(maxDim / aspect));
+    } else {
+      h = maxDim;
+      w = Math.max(16, Math.round(maxDim * aspect));
+    }
 
+    // Draw into an offscreen canvas with "cover" fit to preserve composition
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
     const o = off.getContext('2d')!;
     o.clearRect(0, 0, w, h);
 
+    // Compute cover-fit draw rect
     const cw = img.naturalWidth;
     const ch = img.naturalHeight;
     const targetAR = w / h;
     const srcAR = cw / ch;
     let sx = 0, sy = 0, sw = cw, sh = ch;
-    if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
-    else { sh = cw / targetAR; sy = (ch - sh) / 2; }
+    if (srcAR > targetAR) {
+      sw = ch * targetAR;
+      sx = (cw - sw) / 2;
+    } else {
+      sh = cw / targetAR;
+      sy = (ch - sh) / 2;
+    }
     o.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
 
     const imgData = o.getImageData(0, 0, w, h);
 
+    // Keep a copy for color sampling (upscaled later)
     this.flowImageCanvas = document.createElement('canvas');
     this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
     this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as any)!;
     this.flowImageCtx.putImageData(imgData, 0, 0);
 
+    // Grayscale luminance
     const data = imgData.data;
     const lum = new Float32Array(w * h);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
@@ -1150,6 +1275,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const vec = new Float32Array(w * h * 2);
     const mag = new Float32Array(w * h);
 
+    // Sobel kernels produce gradient (gx, gy)
     const idx = (x: number, y: number) => y * w + x;
     let maxEdge = 0;
     for (let y = 1; y < h - 1; y++) {
@@ -1167,6 +1293,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           -lum[i00] - 2 * lum[i01] - lum[i02] +
            lum[i20] + 2 * lum[i21] + lum[i22];
 
+        // Tangent to the edge = perpendicular to gradient
         let tx = -gy, ty = gx;
         const m = Math.hypot(tx, ty);
         const pos = idx(x, y);
@@ -1185,12 +1312,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         }
       }
     }
+    // Normalize magnitudes to 0..1 with a curve
     const invMax = maxEdge > 0 ? 1 / maxEdge : 1;
     for (let i = 0; i < mag.length; i++) {
       const m = Math.min(1, mag[i] * invMax);
       mag[i] = Math.pow(m, 0.7);
     }
 
+    // Prebuild overlay image
     const overlay = document.createElement('canvas');
     overlay.width = w; overlay.height = h;
     const oc = overlay.getContext('2d')!;
@@ -1253,6 +1382,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_FlowField() {
+    // On beat: refresh some particles and optionally respawn sprites
     const n = Math.min(120, Math.round((this.flowParticles.length * 0.08) || 0));
     const W = this.bufferA.width, H = this.bufferA.height;
     for (let i = 0; i < n; i++) {
@@ -1278,6 +1408,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private drawFlowField(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    // Background using palette
     const bg = ctx.createLinearGradient(0, 0, w, h);
     const lastCol = this.palette.colors[this.palette.colors.length - 1] || this.palette.secondary;
     bg.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
@@ -1285,9 +1416,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
+    // Trails fade
     ctx.fillStyle = 'rgba(0,0,0,0.10)';
     ctx.fillRect(0, 0, w, h);
 
+    // Particles
     this.ensureFlowParticles();
 
     const baseSpeed = this.flowSettings.speed + (this.features.energy ?? 0.5) * (this.reduceMotion ? 20 : 30);
@@ -1302,8 +1435,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     for (let i = 0; i < this.flowParticles.length; i++) {
       const p = this.flowParticles[i];
 
+      // Sample flow vector (art + swirl)
       const fv = this.sampleFlowVector(p.x, p.y, w, h, time);
-      const m = fv[2];
+      const m = fv[2]; // strength
       const targetVx = fv[0] * baseSpeed * (0.4 + m) * beatBoost;
       const targetVy = fv[1] * baseSpeed * (0.4 + m) * beatBoost;
 
@@ -1317,6 +1451,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
+      // Wrap/respawn
       p.life += dt;
       if (p.life > p.ttl || p.x < -2 || p.y < -2 || p.x > w + 2 || p.y > h + 2) {
         p.x = Math.random() * w;
@@ -1325,9 +1460,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         p.vx = 0; p.vy = 0;
         p.life = 0;
         p.ttl = 1.5 + Math.random() * 4;
+        // Slight hue drift
         p.hue = this.pickFlowHue(i);
       }
 
+      // Color
       let stroke = '';
       switch (this.flowSettings.colorMode) {
         case 'key': {
@@ -1359,6 +1496,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
 
+    // Edge overlay
     if (this.flowSettings.edgeOverlay && this.flowOverlayCanvas) {
       ctx.globalAlpha = 0.15;
       ctx.imageSmoothingEnabled = true;
@@ -1366,6 +1504,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.globalAlpha = 1;
     }
 
+    // Tiny album cover sprites
     if (this.flowSettings.spritesEnabled && this.albumImg) {
       this.ensureFlowSprites();
       const minDim = Math.min(w, h);
@@ -1393,6 +1532,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           s.alpha = 0.95;
         }
 
+        // Draw sprite
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(s.angle);
@@ -1405,10 +1545,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
+  // Sample from combined flow: album edge vectors + procedural swirl based on settings
   private sampleFlowVector(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
     let vx = 0, vy = 0, m = 0;
 
     if (this.flowVec && this.flowMag && this.flowW && this.flowH) {
+      // Bilinear sample
       const fx = (x / w) * (this.flowW - 1);
       const fy = (y / h) * (this.flowH - 1);
       const ix = Math.floor(fx), iy = Math.floor(fy);
@@ -1429,26 +1571,32 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       m = lerp(lerp(mv00, mv10, tx), lerp(mv01, mv11, tx), ty);
     }
 
+    // Procedural swirl fallback/blend
     const swirlT = this.flowSettings.swirlAmount;
     if (swirlT > 0) {
       const s = this.sampleSwirl(x, y, w, h, time);
+      // Blend swirl in; if no art vectors, m is small so give swirl some strength
       const blend = swirlT * (0.6 + 0.4 * (1 - m));
       vx = lerp(vx, s[0], blend);
       vy = lerp(vy, s[1], blend);
       m = Math.max(m, s[2] * swirlT);
     }
 
+    // Normalize to avoid zero-length vectors
     const len = Math.hypot(vx, vy);
     if (len > 1e-5) { vx /= len; vy /= len; }
     return [vx, vy, Math.max(0, Math.min(1, m))];
   }
 
+  // Swirl vector field (animated)
   private sampleSwirl(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
+    // Map to -1..1 space
     const nx = (x / w) * 2 - 1;
     const ny = (y / h) * 2 - 1;
     const r = Math.hypot(nx, ny) + 1e-6;
     const angle = Math.atan2(ny, nx);
 
+    // Add gentle time-based rotation and radial flow
     const t = time * 0.2;
     const twist = Math.sin(angle * 3 + t) * 0.5 + Math.cos(r * 6 - t) * 0.5;
     const dir = angle + Math.PI / 2 + twist * 0.5;
@@ -1456,6 +1604,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     let vx = Math.cos(dir);
     let vy = Math.sin(dir);
 
+    // Magnitude strongest around mid-radius
     const mag = Math.exp(-((r - 0.6) * (r - 0.6)) * 6);
     return [vx, vy, mag];
   }
@@ -1493,9 +1642,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Neon Bars
+
   private ensureNeonBars(w: number) {
+    // Recompute bar count when width changes significantly
     if (this.neonBars.length && Math.abs(this.neonLastLayoutW - w) < 16) return;
     this.neonLastLayoutW = w;
+
     const targetBars = this.reduceMotion ? 24 : 48;
     const current = this.neonBars.length;
     if (current < targetBars) {
@@ -1506,19 +1658,22 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_NeonBars() {
+    // Boost neon glow on each beat
     this.neonGlow = Math.min(1, this.neonGlow + 0.6);
+    // Add a little hit to low/mid bars to emulate kick/snare
     const n = this.neonBars.length;
     if (!n) return;
     for (let i = 0; i < n; i++) {
       const band = i / n;
       let boost = 0;
-      if (band < 0.2) boost = 0.25 + (this.features.energy ?? 0.5) * 0.2;
-      else if (band > 0.35 && band < 0.7) boost = 0.12;
+      if (band < 0.2) boost = 0.25 + (this.features.energy ?? 0.5) * 0.2; // kick-ish
+      else if (band > 0.35 && band < 0.7) boost = 0.12; // snare-ish
       if (boost) this.neonBars[i].target = Math.min(1, this.neonBars[i].target + boost);
     }
   }
 
   private onDownbeat_NeonBars() {
+    // Launch two sweeping stingers across the bars (left->right and right->left)
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const now = performance.now() / 1000;
     const dur = 0.6;
@@ -1529,12 +1684,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private drawNeonBars(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     this.ensureNeonBars(w);
 
+    // Background: subtle dark gradient
     const bg = ctx.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, '#07070a');
     bg.addColorStop(1, '#0e0e14');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
+    // Bottom base line
     ctx.globalAlpha = 0.35;
     ctx.strokeStyle = '#ffffff18';
     ctx.lineWidth = 2;
@@ -1547,6 +1704,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const energy = this.features.energy ?? 0.5;
     const dance = this.features.danceability ?? 0.5;
 
+    // Update bar values (pseudo-EQ)
     const n = this.neonBars.length;
     const attack = 0.18 + dance * 0.25;
     const decay = 0.08 + (1 - dance) * 0.06;
@@ -1555,6 +1713,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     for (let i = 0; i < n; i++) {
       const band = i / Math.max(1, n - 1);
+      // Frequency-skewed motion: lows slower, highs quicker
       const f1 = 0.8 + band * 1.6;
       const f2 = 1.6 + band * 2.2;
       const noise =
@@ -1563,29 +1722,36 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       let target = baseFloor + noise * maxAmp;
 
+      // Emphasize beat for some bands
       if (this.beatActive) {
-        if (band < 0.2) target += 0.25 + energy * 0.15;
-        else if (band > 0.35 && band < 0.7) target += 0.1;
+        if (band < 0.2) target += 0.25 + energy * 0.15; // kick area
+        else if (band > 0.35 && band < 0.7) target += 0.1; // snare area
       }
 
+      // Clamp
       target = Math.max(0.02, Math.min(1, target));
       const b = this.neonBars[i];
       b.target = target;
 
+      // Smoothing with different rise/fall
       if (target > b.v) b.v = lerp(b.v, target, attack);
       else b.v = lerp(b.v, target, decay);
 
+      // Peak hold with gravity
       b.peak = Math.max(b.peak - dt * (0.25 + (1 - dance) * 0.6), b.v);
     }
 
+    // Bars geometry
     const gap = Math.max(1, Math.floor(w / n * 0.18));
     const bw = Math.max(2, Math.floor((w - gap * (n + 1)) / Math.max(1, n)));
     const baseY = h * 0.88;
     const maxH = h * 0.72;
 
+    // Neon glow intensity decays
     this.neonGlow = Math.max(0, this.neonGlow - dt * 2.5);
     const glowPulse = 0.25 + this.neonGlow * 0.9;
 
+    // Draw stingers (downbeat sweeps)
     this.drawNeonStingers(ctx, w, h, time);
 
     ctx.save();
@@ -1598,11 +1764,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const bh = b.v * maxH;
       const y = baseY - bh;
 
+      // Bar color gradient
       const pal = this.palette.colors;
       const col = pal[i % pal.length] || this.palette.dominant;
       const c = hexToRgb(col)!;
       const hue = this.keyHueTarget ?? rgbToHsl(c).h;
 
+      // Vertical neon gradient
       const g = ctx.createLinearGradient(0, y, 0, baseY);
       const topCol = `hsla(${hue}, 92%, ${70 + (this.features.valence ?? 0.5) * 10}%, 1)`;
       const midCol = `hsla(${(hue + 12) % 360}, 88%, 55%, 0.95)`;
@@ -1611,14 +1779,17 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       g.addColorStop(0.6, midCol);
       g.addColorStop(1, botCol);
 
+      // Glow
       ctx.shadowBlur = 18 + glowPulse * 22;
       ctx.shadowColor = `hsla(${hue}, 100%, 60%, ${0.45 + glowPulse * 0.3})`;
       ctx.fillStyle = g;
 
+      // Rounded bar
       const r = Math.min(8, bw * 0.4);
       roundRect(ctx, x, y, bw, Math.max(2, bh), r);
       ctx.fill();
 
+      // Peak cap
       const py = baseY - Math.max(2, b.peak * maxH);
       ctx.shadowBlur = 12 + glowPulse * 14;
       ctx.shadowColor = `hsla(${(hue + 30) % 360}, 100%, 65%, 0.6)`;
@@ -1626,6 +1797,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       roundRect(ctx, x, Math.min(py, y - 2), bw, 3, 2);
       ctx.fill();
 
+      // Optional inner glow line for extra neon
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 0.25 + glowPulse * 0.2;
       ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 80%, 0.9)`;
@@ -1638,6 +1810,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
+    // Subtle scanlines overlay for retro vibe
     ctx.globalAlpha = 0.07;
     ctx.fillStyle = '#ffffff';
     for (let yy = 0; yy < h; yy += 4) {
@@ -1667,9 +1840,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Stained Glass Voronoi
+  // Stained Glass Voronoi scene
+
   private ensureStained(w: number, h: number) {
     if (this.sgCells.length && this.sgLastW === w && this.sgLastH === h) return;
+    // Build sites
     const N = this.reduceMotion ? 36 : 72;
     const margin = Math.min(w, h) * 0.06;
     this.sgSites = [];
@@ -1689,12 +1864,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private onBeat_Stained() {
+    // Edge pulse on every beat
     this.sgPulse = Math.min(1, this.sgPulse + 0.5);
   }
 
   private onDownbeat_Stained() {
+    // Extra pulse
     this.sgPulse = 1;
+    // Sparkles along random edges
     this.spawnSparks(14 + Math.round((this.features.energy ?? 0.5) * 18));
+    // Reseed every couple of downbeats for variety
     this.sgDownbeatCounter++;
     if (this.sgDownbeatCounter % 2 === 0) {
       this.reseedStained(this.bufferA.width, this.bufferA.height);
@@ -1704,12 +1883,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     this.ensureStained(w, h);
 
+    // Background: vignetted dark base
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
     bg.addColorStop(0, '#07080b');
     bg.addColorStop(1, '#0a0a10');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
+    // Decay pulse and sparkles
     this.sgPulse = Math.max(0, this.sgPulse - dt * 2.0);
 
     const keyHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
@@ -1717,17 +1898,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const valence = this.features.valence ?? 0.5;
     const energy = this.features.energy ?? 0.5;
 
+    // Draw cells
     ctx.save();
     for (const cell of this.sgCells) {
       if (cell.pts.length < 3) continue;
 
-      const baseRGB = tintRgbTowardHue(cell.color, keyHue, keyAmount);
+      // Tint towards key hue for cohesion
+      let baseRGB = tintRgbTowardHue(cell.color, keyHue, keyAmount);
 
+      // Build path
       ctx.beginPath();
       ctx.moveTo(cell.pts[0].x, cell.pts[0].y);
       for (let i = 1; i < cell.pts.length; i++) ctx.lineTo(cell.pts[i].x, cell.pts[i].y);
       ctx.closePath();
 
+      // Fill: beveled gradient based on centroid and a pseudo-light direction
       const lightDir = { x: Math.cos(time * 0.2) * 0.6 + 0.4, y: Math.sin(time * 0.18) * 0.6 + 0.4 };
       const g = ctx.createRadialGradient(
         cell.cx + (lightDir.x - 0.5) * cell.radius * 0.8,
@@ -1748,12 +1933,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.shadowBlur = 10 + (18 + energy * 24) * (0.2 + this.sgPulse * 0.8);
       ctx.fill();
 
+      // Edge bevel stroke
       ctx.shadowBlur = 0;
       const edgeHue = (keyHue + 20) % 360;
       ctx.lineWidth = Math.max(1.2, Math.min(4, Math.sqrt(cell.radius) * 0.6));
       ctx.strokeStyle = `hsla(${edgeHue}, 90%, ${70 + valence * 10}%, ${0.35 + this.sgPulse * 0.35})`;
       ctx.stroke();
 
+      // Inner highlight stroke (adds glass glint)
       ctx.globalAlpha = 0.18 + this.sgPulse * 0.12;
       ctx.lineWidth = Math.max(0.8, ctx.lineWidth * 0.6);
       ctx.strokeStyle = `rgba(255,255,255,0.6)`;
@@ -1762,40 +1949,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
+    // Sparkles
     this.drawSparks(ctx, w, h, dt);
-  }
-
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const rect = [
-      { x: 0, y: 0 },
-      { x: w, y: 0 },
-      { x: w, y: h },
-      { x: 0, y: h }
-    ];
-    const cells: SGCell[] = [];
-    for (let i = 0; i < sites.length; i++) {
-      const A = sites[i];
-      let poly = rect.slice();
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const B = sites[j];
-        const mx = (A.x + B.x) / 2;
-        const my = (A.y + B.y) / 2;
-        const sx = B.x - A.x;
-        const sy = B.y - A.y;
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (!poly.length) break;
-      }
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-        let rad = 0;
-        for (const p of poly) rad = Math.max(rad, Math.hypot(p.x - cx, p.y - cy));
-        cells.push({ pts: poly, cx, cy, color: A.color, radius: rad });
-      }
-    }
-    return cells;
   }
 
   private spawnSparks(count: number) {
@@ -1840,7 +1995,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.shadowBlur = 0;
   }
 
-  // Emo Slashes
+  // Emo Slashes scene
+
   private ensureEmoPetals(w: number, h: number) {
     const target = this.reduceMotion ? 60 : 160;
     while (this.emoPetals.length < target) {
@@ -1909,6 +2065,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    // Background: dark vignette with a subtle diagonal gradient
     const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const g = ctx.createLinearGradient(0, 0, w, h);
     g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
@@ -1916,6 +2073,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
 
+    // Subtle drifting fog
     ctx.globalAlpha = 0.12;
     ctx.fillStyle = `hsla(${(baseHue + 200) % 360}, 50%, 60%, 1)`;
     const fogT = time * 12;
@@ -1929,6 +2087,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.globalAlpha = 1;
 
+    // Petals
     this.ensureEmoPetals(w, h);
     const gravity = 20 + (this.features.energy ?? 0.5) * 60;
     const drift = (this.features.danceability ?? 0.5) * 20;
@@ -1939,6 +2098,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const p = this.emoPetals[i];
       p.life += dt;
       if (p.life >= p.ttl) {
+        // respawn
         p.x = Math.random() * w;
         p.y = -10;
         p.vx = (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5));
@@ -1961,6 +2121,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const lgt = 55 + (this.features.valence ?? 0.5) * 15;
       const col = `hsla(${(p.hue + 360) % 360}, 85%, ${lgt}%, ${p.alpha})`;
 
+      // Draw a teardrop-shaped petal
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
@@ -1974,6 +2135,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.closePath();
       ctx.fill();
 
+      // Inner vein highlight
       ctx.globalAlpha = 0.25;
       ctx.shadowBlur = 0;
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
@@ -1988,6 +2150,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
+    // Slashes
     this.emoGlow = Math.max(0, this.emoGlow - dt * 2.5);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -2008,6 +2171,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.translate(s.x, s.y);
       ctx.rotate(s.angle);
 
+      // Glow trail
       ctx.shadowBlur = 24 + this.emoGlow * 24;
       ctx.shadowColor = `hsla(${s.hue}, 100%, 65%, ${alpha})`;
       ctx.strokeStyle = grad;
@@ -2017,6 +2181,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.lineTo(s.len / 2, 0);
       ctx.stroke();
 
+      // Core line
       ctx.shadowBlur = 0;
       ctx.strokeStyle = `hsla(${s.hue}, 100%, 85%, ${alpha * 0.9})`;
       ctx.lineWidth = Math.max(1, lw * 0.35);
@@ -2029,6 +2194,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
+    // Ripples
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     for (let i = this.emoRipples.length - 1; i >= 0; i--) {
@@ -2049,6 +2215,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
     ctx.shadowBlur = 0;
 
+    // Foreground vignette
     ctx.globalAlpha = 0.25;
     const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -2058,7 +2225,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  // Lyrics: fetch + timing + overlay
+  // Lyrics: fetch + timing + UI helpers
+
   private async refetchLyricsForCurrentTrack() {
     if (!this.lastTrackId) return;
     try {
@@ -2104,8 +2272,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       }
 
       this.lyrics = state;
-      this.currentLyricIndex = -1;
+      this.currentLyricIndex = -1; // force refresh
     } catch {
+      // Fail silently; keep fallback text
       this.lyrics = null;
       this.currentLyricIndex = -1;
     }
@@ -2116,12 +2285,17 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const t = this.playbackMs / 1000;
     const lines = this.lyrics.lines;
 
+    // Binary search current line
     let lo = 0, hi = lines.length - 1, idx = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
+      if (t < lines[mid].start) {
+        hi = mid - 1;
+      } else if (t >= lines[mid].end) {
+        lo = mid + 1;
+      } else {
+        idx = mid; break;
+      }
     }
 
     if (idx !== -1 && idx !== this.currentLyricIndex) {
@@ -2132,29 +2306,37 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private startPlaybackPolling() {
+    // Poll playback every 1000ms to sync lyrics timing across scenes (overlay etc)
     const tick = async () => {
       try {
+        // Optional cached method
         const pb = await (this.api as any).getCurrentPlaybackCached?.();
         if (pb) {
           this.hadPlaybackPoll = true;
           this.playbackIsPlaying = !!pb.is_playing;
           const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
 
+          // If track changed outside our onTrack flow, adopt it
           const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
           if (tr && tr.id && tr.id !== this.lastTrackId) {
             this.onTrack(tr).catch(() => {});
           }
 
+          // Keep local progress roughly in sync; allow small drift to animate smoothly
           const drift = Math.abs(ms - this.playbackMs);
           if (drift > 750) this.playbackMs = ms;
         }
-      } catch {}
+      } catch {
+        // Ignore polling errors; will try again next tick
+      }
     };
 
     if (this.pbPollTimer) clearInterval(this.pbPollTimer);
     this.pbPollTimer = setInterval(tick, 1000);
     tick().catch(() => {});
   }
+
+  // Lyrics overlay renderer
 
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
@@ -2163,11 +2345,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const lines = this.lyrics.lines;
     const t = this.playbackMs / 1000;
 
+    // Choose a line to show:
     let idx = this.currentLyricIndex;
     if (idx < 0) {
-      if (t < lines[0].start) idx = 0;
-      else if (t > lines[lines.length - 1].end) idx = lines.length - 1;
-      else {
+      if (t < lines[0].start) {
+        idx = 0;
+      } else if (t > lines[lines.length - 1].end) {
+        idx = lines.length - 1;
+      } else {
         idx = lines.findIndex(l => t < l.end);
         if (idx === -1) idx = lines.length - 1;
       }
@@ -2180,9 +2365,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const dur = Math.max(0.1, (line.end - line.start) || 0.1);
     let progress = 0;
-    if (t >= line.start && t <= line.end) progress = Math.max(0, Math.min(1, (t - line.start) / dur));
-    else if (t > line.end) progress = 1;
+    if (t >= line.start && t <= line.end) {
+      progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+    } else if (t > line.end) {
+      progress = 1;
+    } else {
+      progress = 0;
+    }
 
+    // Style
     const minDim = Math.min(W, H);
     const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
     const margin = Math.round(minDim * 0.05);
@@ -2191,6 +2382,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     ctx.save();
 
+    // Measure text
     const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
     ctx.font = fontFace;
     ctx.textAlign = 'center';
@@ -2201,16 +2393,18 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const boxH = Math.ceil(fontPx + padY * 2);
 
     const cx = W / 2;
-    const by = H - margin;
+    const by = H - margin; // bottom baseline position
     const bx = cx - boxW / 2;
-    const topY = by - boxH + Math.round(padY * 0.35);
+    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
 
+    // Background panel (for readability)
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#000';
     roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
     ctx.fill();
     ctx.globalAlpha = 1;
 
+    // Base (unfilled) text
     ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
@@ -2218,6 +2412,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.strokeText(text, cx, by);
     ctx.fillText(text, cx, by);
 
+    // Progress highlight
     const baseHue =
       this.keyHueTarget != null && this.keyColorEnabled
         ? this.keyHueTarget
@@ -2228,6 +2423,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     grad.addColorStop(0, hi);
     grad.addColorStop(1, hi2);
 
+    // Clip to progress width relative to text
     const progW = textW * progress;
     ctx.save();
     ctx.beginPath();
@@ -2240,18 +2436,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillText(text, cx, by);
     ctx.restore();
 
+    // Underline progress bar
     const barY = by + Math.round(fontPx * 0.18);
     const barR = Math.round(Math.min(10, fontPx * 0.18));
     const barPad = Math.round(padX * 0.4);
     const barW = boxW - barPad * 2;
     const filled = Math.round(barW * progress);
 
+    // Track
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#fff';
     roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
     ctx.fill();
     ctx.globalAlpha = 1;
 
+    // Fill
     const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
     barGrad.addColorStop(0, hi);
     barGrad.addColorStop(1, hi2);
@@ -2262,6 +2461,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
+  // Panels infra
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
     if (!root) {
@@ -2289,7 +2489,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <strong>${title}</strong>
           <button class="close" aria-label="Close">✕</button>
         </div>
-        <div class="body"></div>`;
+        <div class="body"></div>
+      `;
       root.appendChild(panel);
       panel.querySelector<HTMLButtonElement>('button.close')!.onclick = () => this.togglePanel(id, false);
     }
@@ -2302,6 +2503,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const show = force ?? panel.classList.contains('hidden');
     panel.classList.toggle('hidden', !show);
   }
+
+  // Color helpers
 
   private mixColor(a: string, b: string, t: number) {
     const pa = hexToRgb(a);
@@ -2316,7 +2519,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 }
 
-// Utils
+// Utility functions
+
 function clampInt(v: number, min: number, max: number) {
   return v < min ? min : v > max ? max : v | 0;
 }
@@ -2337,6 +2541,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.quadraticCurveTo(x, y, x + rr, y);
   ctx.closePath();
 }
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -2347,7 +2552,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// Colors
+// Color utils
+
 function hexToRgb(hex: string) {
   const m = hex.trim().replace('#', '');
   const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
@@ -2376,7 +2582,6 @@ function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
   }
   return { h, s, l };
 }
-
 function hslToRgb(h: number, s: number, l: number) {
   h = ((h % 360) + 360) % 360;
   s = Math.max(0, Math.min(1, s));
@@ -2397,5 +2602,179 @@ function hslToRgb(h: number, s: number, l: number) {
     b: Math.round((b1 + m) * 255)
   };
 }
+function shiftHueHex(hex: string, hue: number) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const { s, l } = rgbToHsl(rgb);
+  const rgb2 = hslToRgb(hue, s, l);
+  return rgbToHex(rgb2);
+}
+function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
+  return {
+    dominant: shiftHueHex(p.dominant, hue),
+    secondary: shiftHueHex(p.secondary, hue),
+    colors: p.colors.map((c) => shiftHueHex(c, hue))
+  };
+}
+function blendHex(a: string, b: string, t: number) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  if (!A || !B) return a;
+  return rgbToHex({
+    r: Math.round(A.r + (B.r - A.r) * t),
+    g: Math.round(A.g + (B.g - A.g) * t),
+    b: Math.round(A.b + (B.b - A.b) * t)
+  });
+}
+function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
+  return {
+    dominant: blendHex(a.dominant, b.dominant, t),
+    secondary: blendHex(a.secondary, b.secondary, t),
+    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
+  };
+}
+function angularDelta(current: number, target: number) {
+  let d = ((target - current + 540) % 360) - 180;
+  return d;
+}
 
+// Polygon clip against half-plane: keep points P s.t. dot(P - M, S) <= 0
+function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
+  if (poly.length === 0) return poly;
+  const out: Array<{ x: number; y: number }> = [];
+  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
 
+  for (let i = 0; i < poly.length; i++) {
+    const A = poly[i];
+    const B = poly[(i + 1) % poly.length];
+    const fa = f(A.x, A.y);
+    const fb = f(B.x, B.y);
+    const ain = fa <= 0;
+    const bin = fb <= 0;
+
+    if (ain && bin) {
+      // in -> in
+      out.push({ x: B.x, y: B.y });
+    } else if (ain && !bin) {
+      // in -> out : add intersection
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+    } else if (!ain && bin) {
+      // out -> in : add intersection + B
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+      out.push({ x: B.x, y: B.y });
+    } else {
+      // out -> out : nothing
+    }
+  }
+  return out;
+}
+
+// Tint an RGB color toward a target hue by amount 0..1
+function tintRgbTowardHue(c: { r: number; g: number; b: number }, hue: number, amt: number) {
+  if (amt <= 0) return c;
+  const hsl = rgbToHsl(c);
+  const tgt = hslToRgb(hue, Math.max(0.45, hsl.s), hsl.l);
+  return {
+    r: Math.round(lerp(c.r, tgt.r, amt)),
+    g: Math.round(lerp(c.g, tgt.g, amt)),
+    b: Math.round(lerp(c.b, tgt.b, amt))
+  };
+}
+
+// Parse helpers for lyrics
+
+function parseTimeTag(min: string, sec: string, frac?: string) {
+  const m = parseInt(min, 10) || 0;
+  const s = parseInt(sec, 10) || 0;
+  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
+  return m * 60 + s + f / 1000;
+}
+
+// Parse standard LRC with optional per-word tags like <mm:ss.xx>
+function parseLRC(lrc: string): LyricLine[] {
+  const lines: { ts: number; text: string }[] = [];
+  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
+
+  const rawLines = lrc.split(/\r?\n/);
+  for (const raw of rawLines) {
+    if (!raw.trim()) continue;
+    // Extract all leading time tags
+    let match: RegExpExecArray | null;
+    timeTag.lastIndex = 0;
+    const stamps: number[] = [];
+    let textStartIdx = 0;
+    while ((match = timeTag.exec(raw))) {
+      stamps.push(parseTimeTag(match[1], match[2], match[3]));
+      textStartIdx = timeTag.lastIndex;
+    }
+    const text = raw.slice(textStartIdx).trim();
+    if (!stamps.length || !text) continue;
+    for (const ts of stamps) {
+      lines.push({ ts, text });
+    }
+  }
+  // Sort by timestamp
+  lines.sort((a, b) => a.ts - b.ts);
+
+  // Build line objects and estimate end time as next start
+  const out: LyricLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const start = lines[i].ts;
+    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
+    out.push({ start, end, text: lines[i].text });
+  }
+
+  // Optional: per-word timing if inline tags exist
+  if (lrc.indexOf('<') !== -1) {
+    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
+    for (const ln of out) {
+      const src = ln.text;
+      wordTag.lastIndex = 0;
+      const words: LyricWord[] = [];
+      let lastIdx = 0;
+      let m: RegExpExecArray | null;
+      const starts: number[] = [];
+      let collectedText = '';
+      while ((m = wordTag.exec(src))) {
+        const before = src.slice(lastIdx, m.index);
+        if (before.trim()) {
+          collectedText += before;
+        }
+        const start = parseTimeTag(m[1], m[2], m[3]);
+        starts.push(start);
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
+      if (starts.length && collectedText.trim()) {
+        const tokens = collectedText.trim().split(/\s+/);
+        const N = Math.min(tokens.length, starts.length);
+        for (let i = 0; i < N; i++) {
+          const st = starts[i];
+          const en = i + 1 < N ? starts[i + 1] : ln.end;
+          words.push({ start: st, end: en, text: tokens[i] });
+        }
+        ln.words = words;
+        ln.text = tokens.join(' ');
+      }
+    }
+  }
+
+  return out;
+}
+
+// Fallback: evenly distribute plain lyrics lines across track duration
+function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
+  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!rows.length || durationSec <= 0) return [];
+  const base = 1.0; // start at 1s in
+  const total = Math.max(5, durationSec - 1);
+  const step = Math.max(1, total / rows.length);
+  const out: LyricLine[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const start = base + i * step;
+    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
+    out.push({ start, end, text: rows[i] });
+  }
+  return out;
+}
