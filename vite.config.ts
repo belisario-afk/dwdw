@@ -6,15 +6,17 @@ const r = (p: string) => path.resolve(process.cwd(), p);
 export default defineConfig({
   base: '/dwdw/',
   resolve: {
-    // Use regex so "@auth/pkce" maps into "src/auth/pkce"
     alias: [
-      { find: /^@auth(\/|$)/, replacement: r('src/auth') + '$1' },
-      { find: /^@spotify(\/|$)/, replacement: r('src/spotify') + '$1' },
-      { find: /^@audio(\/|$)/, replacement: r('src/audio') + '$1' },
-      { find: /^@visuals(\/|$)/, replacement: r('src/visuals') + '$1' },
-      { find: /^@controllers(\/|$)/, replacement: r('src/controllers') + '$1' },
-      { find: /^@ui(\/|$)/, replacement: r('src/ui') + '$1' },
-      { find: /^@utils(\/|$)/, replacement: r('src/utils') + '$1' }
+      // Direct file alias to be absolutely sure this resolves
+      { find: '@auth/pkce', replacement: r('src/auth/pkce.ts') },
+      // Folder aliases
+      { find: '@auth', replacement: r('src/auth') },
+      { find: '@spotify', replacement: r('src/spotify') },
+      { find: '@audio', replacement: r('src/audio') },
+      { find: '@visuals', replacement: r('src/visuals') },
+      { find: '@controllers', replacement: r('src/controllers') },
+      { find: '@ui', replacement: r('src/ui') },
+      { find: '@utils', replacement: r('src/utils') }
     ]
   },
   server: { host: '127.0.0.1', port: 5173 },

@@ -5,6 +5,11 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+# Prevent overlapping deployments
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pages: write
@@ -17,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Setup Node with cache only if a lockfile exists
+      # Use cache only if a lockfile exists
       - name: Setup Node (with cache)
         if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/yarn.lock') != '' }}
         uses: actions/setup-node@v4
@@ -35,14 +40,22 @@ jobs:
         with:
           node-version: 20
 
-      # Install deps: prefer ci when lockfile present, else install
-      - name: Install (npm ci)
+      - name: Install dependencies (npm ci)
         if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') != '' }}
         run: npm ci
 
-      - name: Install (npm install)
+      - name: Install dependencies (npm install)
         if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') == '' }}
         run: npm install
+
+      # Optional but helpful: fail early if critical files are missing (case-sensitive paths)
+      - name: Verify critical files exist
+        run: |
+          set -e
+          test -f vite.config.ts || (echo "Missing: vite.config.ts" && exit 1)
+          test -f src/main.ts || (echo "Missing: src/main.ts" && exit 1)
+          test -f src/auth/pkce.ts || (echo "Missing: src/auth/pkce.ts (check case and path)" && exit 1)
+          test -f src/utils/emitter.ts || (echo "Missing: src/utils/emitter.ts" && exit 1)
 
       - name: Build
         run: npm run build
@@ -62,6 +75,10 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Configures the GitHub Pages deployment
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
