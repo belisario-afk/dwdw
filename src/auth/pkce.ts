@@ -2,7 +2,7 @@ import { Emitter } from '@utils/emitter';
 
 type AuthOptions = {
   clientId: string;
-  redirectUri: string;
+  redirectUri: string; // Should be the app base, e.g. https://.../dwdw/ or http://127.0.0.1:5173/
   scopes: string[];
 };
 
@@ -23,7 +23,7 @@ type TokenSet = {
 
 export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
   private tokens: TokenSet | null = null;
-  private storageKey = 'dwdw.tokens';
+  private tokensKey = 'dwdw.tokens';
   private verifierKey = 'dwdw.pkce.verifier';
   private stateKey = 'dwdw.pkce.state';
 
@@ -43,7 +43,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
 
   async restore(): Promise<boolean> {
     try {
-      const raw = localStorage.getItem(this.storageKey);
+      const raw = localStorage.getItem(this.tokensKey);
       if (!raw) return false;
       const parsed = JSON.parse(raw) as TokenSet;
       this.tokens = parsed;
@@ -66,8 +66,11 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     const challenge = await this.generateCodeChallenge(verifier);
     const state = crypto.randomUUID();
 
+    // Store in both session and local to be resilient across some browser flows
     sessionStorage.setItem(this.verifierKey, verifier);
     sessionStorage.setItem(this.stateKey, state);
+    localStorage.setItem(this.verifierKey, verifier);
+    localStorage.setItem(this.stateKey, state);
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -83,38 +86,34 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
 
   async logout() {
     this.tokens = null;
-    localStorage.removeItem(this.storageKey);
+    localStorage.removeItem(this.tokensKey);
     this.emit('tokens', null);
   }
 
-  // Tolerant handler: only throws on the actual callback route with bad/missing params.
-  async handleRedirectCallback(): Promise<void> {
+  // Returns true if handled an OAuth response, false otherwise. Never throws on normal app loads.
+  async handleRedirectCallback(): Promise<boolean> {
     const url = new URL(location.href);
-    const hash = url.hash || '';
-    const isCallbackRoute = url.pathname.endsWith('/callback') || hash.startsWith('#/callback');
+    const params = url.searchParams;
 
-    // Choose params from either ?search or the part after "#/callback?"
-    let params: URLSearchParams;
-    if (url.search.length > 1) {
-      params = url.searchParams;
-    } else if (hash.startsWith('#/')) {
-      const qi = hash.indexOf('?');
-      params = qi !== -1 ? new URLSearchParams(hash.slice(qi + 1)) : new URLSearchParams();
-    } else {
-      params = new URLSearchParams();
+    const hasAuthParams = params.has('code') || params.has('state') || params.has('error');
+    if (!hasAuthParams) return false;
+
+    const error = params.get('error');
+    if (error) {
+      console.warn('OAuth error:', error, params.get('error_description') || '');
+      this.cleanAuthParams(url);
+      return false;
     }
 
     const code = params.get('code');
     const state = params.get('state');
-    const storedState = sessionStorage.getItem(this.stateKey);
-    const verifier = sessionStorage.getItem(this.verifierKey);
+    const storedState = sessionStorage.getItem(this.stateKey) || localStorage.getItem(this.stateKey);
+    const verifier = sessionStorage.getItem(this.verifierKey) || localStorage.getItem(this.verifierKey);
 
-    // If this isn't a callback URL, just ignore silently.
-    if (!isCallbackRoute && !(code && state)) return;
-
-    // On callback route, validate strictly.
     if (!code || !state || !verifier || state !== storedState) {
-      throw new Error('Invalid OAuth callback.');
+      console.warn('Invalid OAuth callback (missing/mismatched params).');
+      this.cleanAuthParams(url); // clean up and let user try again
+      return false;
     }
 
     const body = new URLSearchParams({
@@ -130,7 +129,11 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body
     });
-    if (!resp.ok) throw new Error('Token exchange failed: ' + (await resp.text()));
+    if (!resp.ok) {
+      console.error('Token exchange failed:', await resp.text());
+      this.cleanAuthParams(url);
+      return false;
+    }
     const data = (await resp.json()) as TokenResponse;
 
     this.tokens = {
@@ -139,24 +142,26 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       expiresAt: Date.now() + data.expires_in * 1000,
       scope: data.scope.split(' ')
     };
-    localStorage.setItem(this.storageKey, JSON.stringify(this.tokens));
-    sessionStorage.removeItem(this.verifierKey);
-    sessionStorage.removeItem(this.stateKey);
+    localStorage.setItem(this.tokensKey, JSON.stringify(this.tokens));
     this.emit('tokens', this.tokens);
 
-    // Clean URL (remove code/state from hash or search)
-    try {
-      const clean = this.cleanUrl(url);
-      history.replaceState({}, '', clean);
-    } catch {}
+    // Cleanup verifier/state from both storages
+    sessionStorage.removeItem(this.verifierKey);
+    sessionStorage.removeItem(this.stateKey);
+    localStorage.removeItem(this.verifierKey);
+    localStorage.removeItem(this.stateKey);
+
+    // Clean URL (remove ?code&state&error) but keep any hash
+    this.cleanAuthParams(url);
+    return true;
   }
 
-  private cleanUrl(url: URL): string {
-    // Normalize to app root with hash route
-    const base = `${url.origin}${url.pathname.replace(/\/callback\/?$/, '/')}`;
-    if (url.hash.startsWith('#/callback')) return base + '#/';
-    if (url.search) return base + url.hash; // drop ?code if any
-    return base + url.hash;
+  private cleanAuthParams(url: URL) {
+    const clean = new URL(url.toString());
+    clean.searchParams.delete('code');
+    clean.searchParams.delete('state');
+    clean.searchParams.delete('error');
+    history.replaceState({}, '', clean.toString());
   }
 
   async refresh(): Promise<void> {
@@ -179,7 +184,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       expiresAt: Date.now() + data.expires_in * 1000,
       scope: data.scope.split(' ')
     };
-    localStorage.setItem(this.storageKey, JSON.stringify(this.tokens));
+    localStorage.setItem(this.tokensKey, JSON.stringify(this.tokens));
     this.emit('tokens', this.tokens);
   }
 

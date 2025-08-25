@@ -15,16 +15,18 @@ declare global {
   }
 }
 
+// Keep your client ID (or switch to import.meta.env.VITE_SPOTIFY_CLIENT_ID)
 const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
-const REDIRECT_URI =
-  location.hostname === '127.0.0.1'
-    ? 'http://127.0.0.1:5173/callback'
-    : 'https://belisario-afk.github.io/dwdw/callback';
+
+// Build a redirect URI that works on both localhost and GitHub Pages.
+// IMPORTANT: This must NOT include any ?query or #hash. Use origin + BASE_URL only.
+const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
 (async function boot() {
   ensureRoute();
 
   const cache = new Cache('dwdw-v1');
+
   const auth = new Auth({
     clientId: CLIENT_ID,
     redirectUri: REDIRECT_URI,
@@ -72,21 +74,10 @@ const REDIRECT_URI =
     ui.setGPULabel(String(renderer));
   } catch {}
 
-  // Handle auth callback route
-  if (location.hash.startsWith('#/callback') || location.pathname.endsWith('/callback')) {
-    try {
-      await auth.handleRedirectCallback();
-      location.hash = '#/';
-      await ui.postLogin();
-    } catch (e) {
-      console.error(e);
-      alert('Authentication failed. See console.');
-    }
-  } else {
-    if (await auth.restore()) {
-      await ui.postLogin();
-    }
-  }
+  // Handle OAuth callback (tolerant) and attempt restore.
+  // This will not throw on normal loads and will clean ?code&state from the URL.
+  await auth.handleRedirectCallback();
+  await auth.restore();
 
   // Auto-cinematic mode selection changes visuals with track
   api.on('track-changed', async (track) => {
@@ -104,9 +95,55 @@ const REDIRECT_URI =
     director.onTrack(track);
   });
 
-  // Update seek/labels
-  setInterval(async () => {
-    const pb = await api.getCurrentPlaybackCached();
-    ui.updatePlayback(pb);
-  }, 1000);
+  // Start/stop flows that require an access token
+  let started = false;
+  let pollTimer: any = null;
+
+  async function startAuthedFlows() {
+    if (started) return;
+    started = true;
+
+    // Let UI wire up anything that assumes a valid token/device list etc.
+    await ui.postLogin();
+
+    // Initial playback fetch (guard token just in case)
+    try {
+      if (auth.getAccessToken()) {
+        const pb = await api.getCurrentPlaybackCached();
+        ui.updatePlayback(pb);
+      }
+    } catch (e) {
+      // Non-fatal
+      console.debug('Initial playback fetch failed:', e);
+    }
+
+    // Update seek/labels periodically (only if token is present)
+    pollTimer = setInterval(async () => {
+      if (!auth.getAccessToken()) return;
+      try {
+        const pb = await api.getCurrentPlaybackCached();
+        ui.updatePlayback(pb);
+      } catch {
+        // Swallow to avoid console spam when token expires momentarily
+      }
+    }, 1000);
+  }
+
+  function stopAuthedFlows() {
+    if (!started) return;
+    started = false;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    // If your UI has a method to reset playback UI, call it here.
+    // ui.resetPlaybackUI?.();
+  }
+
+  // Kick off if we already have tokens, and react to login/logout
+  if (auth.isAuthenticated()) startAuthedFlows();
+  auth.on('tokens', (t) => {
+    if (t) startAuthedFlows();
+    else stopAuthedFlows();
+  });
 })();
