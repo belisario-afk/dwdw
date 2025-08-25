@@ -59,6 +59,17 @@ type FlowSettings = {
 type NeonBar = { v: number; target: number; peak: number; };
 type Stinger = { start: number; dur: number; dir: 1 | -1; hue: number };
 
+// Lyrics types
+type LyricWord = { start: number; end: number; text: string };
+type LyricLine = { start: number; end: number; text: string; words?: LyricWord[] };
+type LyricsState = {
+  provider: 'lrclib';
+  trackId: string | null;
+  synced: boolean;
+  lines: LyricLine[];
+  updatedAt: number;
+};
+
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -97,6 +108,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   // Audio-reactivity
   private features: AudioFeaturesLite = {};
   private lastTrackId: string | null = null;
+  private lastTrackDurationMs: number = 0;
   private featuresBackoffUntil = 0;
 
   // Beat scheduler
@@ -123,6 +135,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private lyricAgents: Array<{ x: number; y: number; vx: number; vy: number; target: number }> = [];
   private lastTextW = 0;
   private lastTextH = 0;
+
+  // Karaoke/lyrics state
+  private lyricsAutoFetch = true;
+  private lyrics: LyricsState | null = null;
+  private currentLyricIndex = -1;
+
+  // Playback progress (for lyrics timing)
+  private playbackMs = 0;
+  private playbackIsPlaying = false;
+  private pbPollTimer: any = null;
 
   // Beat Ball scene
   private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
@@ -179,8 +201,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const a = this.bufferA.getContext('2d');
     const b = this.bufferB.getContext('2d');
     if (!a || !b) throw new Error('2D buffer context not available');
-    this.bufCtxA = a!;
-    this.bufCtxB = b!;
+    this.bufCtxA = a;
+    this.bufCtxB = b;
 
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
@@ -197,12 +219,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
 
-      // Flow particles and sprites sizing
+      // Adjust defaults by motion for Flow Field
       this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
       this.ensureFlowParticles();
       this.ensureFlowSprites();
 
-      // Neon bars layout cache reset
+      // Reset Neon Bars layout cache to recompute bar count on next draw
       this.neonLastLayoutW = 0;
     };
     window.addEventListener('resize', onResize);
@@ -210,6 +232,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     // Initialize beat schedule
     this.recomputeBeatSchedule();
+
+    // Start internal playback polling for lyrics timing
+    this.startPlaybackPolling();
 
     this.start();
   }
@@ -239,7 +264,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         this.ensureFlowParticles();
         this.ensureFlowSprites();
       }
-    } catch {
+    } catch (e) {
       // If art fails (CORS/404), clear field so scene uses procedural fallback
       this.flowVec = null;
       this.flowMag = null;
@@ -315,8 +340,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <span>Beat confetti</span>
         </label>
 
-        <div style="margin-top:10px;">
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
           <button id="open-flow-panel">Configure Flow Field…</button>
+          <button id="open-lyrics-panel">Lyrics…</button>
         </div>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
@@ -350,11 +376,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           this.beatConfettiEnabled = (e.target as HTMLInputElement).checked;
           this.togglePanel('access', false);
         });
-      // Restore Flow Field config opener
       panel.querySelector<HTMLButtonElement>('#open-flow-panel')!
         .addEventListener('click', () => {
           this.togglePanel('access', false);
           this.toggleFlowFieldPanel(true);
+        });
+      panel.querySelector<HTMLButtonElement>('#open-lyrics-panel')!
+        .addEventListener('click', () => {
+          this.togglePanel('access', false);
+          this.toggleLyricsPanel(true);
         });
     });
     this.togglePanel('access', undefined);
@@ -454,6 +484,54 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('flow', force);
   }
 
+  private toggleLyricsPanel(force?: boolean) {
+    this.mountPanel('lyrics', 'Lyrics', (panel) => {
+      panel.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:10px;min-width:260px;">
+          <label style="display:flex;gap:8px;align-items:center;">
+            <input id="lyr-auto" type="checkbox" ${this.lyricsAutoFetch ? 'checked' : ''}/>
+            <span>Auto‑fetch lyrics (LRCLIB)</span>
+          </label>
+          <div style="font-size:12px;opacity:.8;">
+            Provider: LRCLIB (synced when available). We never scrape sites.
+          </div>
+          <div id="lyr-status" style="font-size:12px;opacity:.9;">
+            ${this.lyrics?.lines?.length ? `Loaded ${this.lyrics.lines.length} line(s)${this.lyrics.synced ? ' (synced)' : ''}.` : 'No lyrics loaded.'}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="lyr-refetch">Refetch for current track</button>
+            <button id="lyr-clear">Clear</button>
+          </div>
+        </div>
+      `;
+      panel.querySelector<HTMLInputElement>('#lyr-auto')!
+        .addEventListener('change', (e) => {
+          this.lyricsAutoFetch = (e.target as HTMLInputElement).checked;
+          if (this.lyricsAutoFetch && this.lastTrackId) {
+            // Try fetch immediately for current track
+            this.refetchLyricsForCurrentTrack().catch(() => {});
+          }
+          this.togglePanel('lyrics', false);
+        });
+      panel.querySelector<HTMLButtonElement>('#lyr-refetch')!
+        .addEventListener('click', () => {
+          this.refetchLyricsForCurrentTrack().catch(() => {});
+          this.togglePanel('lyrics', false);
+        });
+      panel.querySelector<HTMLButtonElement>('#lyr-clear')!
+        .addEventListener('click', () => {
+          this.lyrics = null;
+          this.currentLyricIndex = -1;
+          // Reset Lyric Lines text to Track — Artist if we had it
+          if (this.lastTrackId) {
+            // Keep current fallback text as-is
+          }
+          this.togglePanel('lyrics', false);
+        });
+    });
+    this.togglePanel('lyrics', force);
+  }
+
   setFeaturesEnabled(on: boolean) {
     this.featuresEnabled = !!on;
     if (!on) this.features = {};
@@ -476,6 +554,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Reset beat phase on new track
     this.beatCount = 0;
 
+    // Track duration
+    this.lastTrackDurationMs = track.duration_ms ?? 0;
+
     // Flow field: set new album art if available
     const art = track.album?.images?.[0]?.url || null;
     if (art) {
@@ -486,11 +567,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.lastTrackId = null;
       this.features = {};
       this.keyHueTarget = null;
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
       this.recomputeBeatSchedule();
       return;
     }
     if (this.lastTrackId === track.id) return;
     this.lastTrackId = track.id;
+
+    // Lyrics auto-fetch
+    if (this.lyricsAutoFetch) {
+      this.fetchLyricsLRCLIB(track).catch(() => {});
+    } else {
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
+    }
 
     if (!this.featuresEnabled || Date.now() < this.featuresBackoffUntil) {
       this.recomputeBeatSchedule();
@@ -569,6 +660,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private render(dt: number, time: number) {
+    // Update local playback progress for lyric timing
+    if (this.playbackIsPlaying) this.playbackMs += dt * 1000;
+
     // Beats
     this.updateBeat(time);
 
@@ -582,6 +676,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const curName = this.sceneName;
     const nextName = this.nextSceneName;
+
+    // Update current lyric line (if any)
+    this.updateCurrentLyricLine();
 
     // Draw current scene into buffer A
     this.drawScene(this.bufCtxA, bw, bh, time, dt, curName);
@@ -789,7 +886,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  private drawTerrain(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+  private drawTerrain(ctx: CanvasRenderingContext22D, w: number, h: number, time: number, dt: number) {
     const rows = this.reduceMotion ? 20 : 50;
     ctx.clearRect(0, 0, w, h);
     ctx.lineWidth = 2;
@@ -841,7 +938,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const targetPts = this.textPoints;
     const stiffness = this.beatActive ? 8 : 4;
-    const damping = 0.86;
     const noise = this.reduceMotion ? 0.1 : 0.25;
 
     for (const a of this.lyricAgents) {
@@ -1651,6 +1747,114 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
+  // Lyrics: fetch + timing + UI helpers
+
+  private async refetchLyricsForCurrentTrack() {
+    if (!this.lastTrackId) return;
+    try {
+      // Try to get current playback track object so we have accurate artist/title
+      const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
+      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
+      if (tr) return this.fetchLyricsLRCLIB(tr);
+    } catch {}
+  }
+
+  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
+    try {
+      const trackName = track.name || '';
+      const artistName = (track.artists || []).map(a => a.name).join(', ');
+      const albumName = track.album?.name || '';
+      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
+
+      const params = new URLSearchParams();
+      if (trackName) params.set('track_name', trackName);
+      if (artistName) params.set('artist_name', artistName);
+      if (albumName) params.set('album_name', albumName);
+      if (durationSec) params.set('duration', String(durationSec));
+
+      const url = `https://lrclib.net/api/search?${params.toString()}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
+      const data = await res.json();
+
+      let synced = '';
+      let plain = '';
+      if (Array.isArray(data) && data.length) {
+        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
+        synced = best?.syncedLyrics || '';
+        plain = best?.plainLyrics || '';
+      }
+
+      let state: LyricsState | null = null;
+      if (synced && typeof synced === 'string') {
+        const lines = parseLRC(synced);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
+      } else if (plain && typeof plain === 'string') {
+        const lines = parsePlainLyrics(plain, durationSec);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
+      }
+
+      this.lyrics = state;
+      this.currentLyricIndex = -1; // force refresh
+    } catch (e) {
+      // Fail silently; keep fallback text
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
+    }
+  }
+
+  private updateCurrentLyricLine() {
+    if (!this.lyrics || !this.lyrics.lines.length) return;
+    const t = this.playbackMs / 1000;
+    const lines = this.lyrics.lines;
+
+    // Binary search current line
+    let lo = 0, hi = lines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < lines[mid].start) {
+        hi = mid - 1;
+      } else if (t >= lines[mid].end) {
+        lo = mid + 1;
+      } else {
+        idx = mid; break;
+      }
+    }
+
+    if (idx !== -1 && idx !== this.currentLyricIndex) {
+      this.currentLyricIndex = idx;
+      const text = lines[idx].text || '';
+      if (text.trim()) this.setLyricText(text);
+    }
+  }
+
+  private startPlaybackPolling() {
+    // Poll playback every 1000ms to sync lyrics timing
+    const tick = async () => {
+      try {
+        const pb = await this.api.getCurrentPlaybackCached();
+        if (pb) {
+          this.playbackIsPlaying = !!pb.is_playing;
+          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
+          // If Spotify switched track outside our onTrack flow, update trackId and try lyrics fetch
+          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
+          if (tr && tr.id && tr.id !== this.lastTrackId) {
+            // Let existing onTrack handle palette/features; just adopt progress here
+            this.onTrack(tr).catch(() => {});
+          }
+          // Only jump progress if drift is large; otherwise let local dt smooth it
+          const drift = Math.abs(ms - this.playbackMs);
+          if (drift > 750) this.playbackMs = ms; // resync if >0.75s drift
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    };
+    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
+    this.pbPollTimer = setInterval(tick, 1000);
+    tick().catch(() => {});
+  }
+
   // Panels infra
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
@@ -1825,4 +2029,107 @@ function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
 function angularDelta(current: number, target: number) {
   let d = ((target - current + 540) % 360) - 180;
   return d;
+}
+
+// Lyrics parsing helpers
+
+function parseTimeTag(min: string, sec: string, frac?: string) {
+  const m = parseInt(min, 10) || 0;
+  const s = parseInt(sec, 10) || 0;
+  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
+  return m * 60 + s + f / 1000;
+}
+
+// Parse standard LRC with optional per-word tags like <mm:ss.xx>
+function parseLRC(lrc: string): LyricLine[] {
+  const lines: { ts: number; text: string }[] = [];
+  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
+
+  const rawLines = lrc.split(/\r?\n/);
+  for (const raw of rawLines) {
+    if (!raw.trim()) continue;
+    // Extract all leading time tags
+    let match: RegExpExecArray | null;
+    timeTag.lastIndex = 0;
+    const stamps: number[] = [];
+    let textStartIdx = 0;
+    while ((match = timeTag.exec(raw))) {
+      stamps.push(parseTimeTag(match[1], match[2], match[3]));
+      textStartIdx = timeTag.lastIndex;
+    }
+    const text = raw.slice(textStartIdx).trim();
+    if (!stamps.length || !text) continue;
+    for (const ts of stamps) {
+      lines.push({ ts, text });
+    }
+  }
+  // Sort by timestamp
+  lines.sort((a, b) => a.ts - b.ts);
+
+  // Build line objects and estimate end time as next start
+  const out: LyricLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const start = lines[i].ts;
+    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
+    out.push({ start, end, text: lines[i].text });
+  }
+
+  // Optional: per-word timing if inline tags exist
+  // Detect a sample with "<mm:ss.xx>" to decide whether to parse
+  if (lrc.indexOf('<') !== -1) {
+    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
+    for (const ln of out) {
+      const src = ln.text;
+      wordTag.lastIndex = 0;
+      const words: LyricWord[] = [];
+      let lastIdx = 0;
+      let prevStart: number | null = null;
+      let m: RegExpExecArray | null;
+      let collectedText = '';
+      const starts: number[] = [];
+      const texts: string[] = [];
+      while ((m = wordTag.exec(src))) {
+        const before = src.slice(lastIdx, m.index);
+        if (before.trim()) {
+          collectedText += before;
+        }
+        const start = parseTimeTag(m[1], m[2], m[3]);
+        starts.push(start);
+        lastIdx = m.index + m[0].length;
+      }
+      // Remaining text after last tag
+      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
+      // Split collectedText into tokens approximately equal to starts length
+      if (starts.length && collectedText.trim()) {
+        const tokens = collectedText.trim().split(/\s+/);
+        const N = Math.min(tokens.length, starts.length);
+        for (let i = 0; i < N; i++) {
+          const st = starts[i];
+          const en = i + 1 < N ? starts[i + 1] : ln.end;
+          words.push({ start: st, end: en, text: tokens[i] });
+        }
+        ln.words = words;
+        // Replace line text with tokens joined (no tags)
+        ln.text = tokens.join(' ');
+      }
+    }
+  }
+
+  return out;
+}
+
+// Fallback: evenly distribute plain lyrics lines across track duration
+function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
+  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!rows.length || durationSec <= 0) return [];
+  const base = 1.0; // start at 1s in
+  const total = Math.max(5, durationSec - 1);
+  const step = Math.max(1, total / rows.length);
+  const out: LyricLine[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const start = base + i * step;
+    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
+    out.push({ start, end, text: rows[i] });
+  }
+  return out;
 }
