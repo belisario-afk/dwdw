@@ -2268,32 +2268,47 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Voronoi core (fixed)
   private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (poly.length === 0) break;
-      }
-      if (poly.length) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-        let radius = 0;
-        for (const p of poly) { radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy)); }
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
+  // Start with one big rectangle bounding box
+  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+  const cells: SGCell[] = [];
+
+  for (let i = 0; i < sites.length; i++) {
+    const si = sites[i];
+    let poly = B.slice();
+
+    for (let j = 0; j < sites.length; j++) {
+      if (i === j) continue;
+      const sj = sites[j];
+
+      // Perpendicular bisector half-plane between si and sj
+      const mx = (si.x + sj.x) / 2;
+      const my = (si.y + sj.y) / 2;
+      const sx = sj.x - si.x;
+      const sy = sj.y - si.y;
+
+      // Clip current polygon against the half-plane
+      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+      if (poly.length === 0) break; // fully clipped
     }
-    return cells;
+
+    if (poly.length) {
+      // Compute centroid and an approximate radius for effects
+      let cx = 0, cy = 0;
+      for (const p of poly) { cx += p.x; cy += p.y; }
+      cx /= poly.length; cy /= poly.length;
+
+      let radius = 0;
+      for (const p of poly) {
+        const d = Math.hypot(p.x - cx, p.y - cy);
+        if (d > radius) radius = d;
+      }
+
+      cells.push({ pts: poly, cx, cy, color: si.color, radius });
+    }
   }
+
+  return cells;
+}
 
   // Lyrics helpers and overlay rendering are below...
 
@@ -2631,10 +2646,17 @@ function angularDelta(current: number, target: number) {
   return ((target - current + 540) % 360) - 180;
 }
 // Half-plane polygon clip: keep points P s.t. dot(P - M, S) <= 0
-function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
+function clipPolygonHalfPlane(
+  poly: Array<{ x: number; y: number }>,
+  sx: number,
+  sy: number,
+  mx: number,
+  my: number
+) {
   if (poly.length === 0) return poly;
   const out: Array<{ x: number; y: number }> = [];
   const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
+
   for (let i = 0; i < poly.length; i++) {
     const A = poly[i];
     const B = poly[(i + 1) % poly.length];
@@ -2642,7 +2664,21 @@ function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number,
     const fb = f(B.x, B.y);
     const ain = fa <= 0;
     const bin = fb <= 0;
-    if (ain && bin) out.push({ x: B.x, y: B.y });
-    else if (ain && !bin) {
+
+    if (ain && bin) {
+      // in -> in: keep B
+      out.push({ x: B.x, y: B.y });
+    } else if (ain && !bin) {
+      // in -> out: keep intersection
       const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) *
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+    } else if (!ain && bin) {
+      // out -> in: keep intersection then B
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+      out.push({ x: B.x, y: B.y });
+    } // out -> out: keep nothing
+  }
+
+  return out;
+}
