@@ -1,4 +1,42 @@
-import { SpotifyAPI } from '@spotify/api';
+private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+  const cells: SGCell[] = [];
+
+  for (let i = 0; i < sites.length; i++) {
+    const si = sites[i];
+    let poly = B.slice();
+
+    for (let j = 0; j < sites.length; j++) {
+      if (i === j) continue;
+      const sj = sites[j];
+
+      const mx = (si.x + sj.x) / 2;
+      const my = (si.y + sj.y) / 2;
+      const sx = sj.x - si.x;
+      const sy = sj.y - si.y;
+
+      // This is the line that was truncated in your file:
+      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+      if (poly.length === 0) break; // fully clipped
+    }
+
+    if (poly.length >= 3) {
+      let cx = 0, cy = 0;
+      for (const p of poly) { cx += p.x; cy += p.y; }
+      cx /= poly.length; cy /= poly.length;
+
+      let radius = 0;
+      for (const p of poly) {
+        const d = Math.hypot(p.x - cx, p.y - cy);
+        if (d > radius) radius = d;
+      }
+
+      cells.push({ pts: poly, cx, cy, color: sites[i].color, radius });
+    }
+  }
+
+  return cells;
+}import { SpotifyAPI } from '@spotify/api';
 import { Emitter } from '@utils/emitter';
 
 // UI palette
@@ -2054,45 +2092,45 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Voronoi core (FIXED: no dangling "poly")
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
+ private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+  const cells: SGCell[] = [];
 
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
+  for (let i = 0; i < sites.length; i++) {
+    const si = sites[i];
+    let poly = B.slice();
 
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
+    for (let j = 0; j < sites.length; j++) {
+      if (i === j) continue;
+      const sj = sites[j];
 
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
+      const mx = (si.x + sj.x) / 2;
+      const my = (si.y + sj.y) / 2;
+      const sx = sj.x - si.x;
+      const sy = sj.y - si.y;
 
-        // Correct, complete line (was previously truncated to just "poly")
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (poly.length === 0) break;
-      }
-
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-
-        let radius = 0;
-        for (const p of poly) {
-          const d = Math.hypot(p.x - cx, p.y - cy);
-          if (d > radius) radius = d;
-        }
-
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
+      // This is the line that was truncated in your file:
+      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+      if (poly.length === 0) break; // fully clipped
     }
 
-    return cells;
+    if (poly.length >= 3) {
+      let cx = 0, cy = 0;
+      for (const p of poly) { cx += p.x; cy += p.y; }
+      cx /= poly.length; cy /= poly.length;
+
+      let radius = 0;
+      for (const p of poly) {
+        const d = Math.hypot(p.x - cx, p.y - cy);
+        if (d > radius) radius = d;
+      }
+
+      cells.push({ pts: poly, cx, cy, color: sites[i].color, radius });
+    }
   }
+
+  return cells;
+}
 
   // Lyrics fetching
   private async refetchLyricsForCurrentTrack() {
@@ -2412,6 +2450,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 // Geometry helper for Voronoi half-plane clipping (OUTSIDE class)
 // Keep points P such that dot(P - M, S) <= 0
+// Keep points P such that dot(P - M, S) <= 0
 function clipPolygonHalfPlane(
   poly: Array<{ x: number; y: number }>,
   sx: number,
@@ -2432,12 +2471,12 @@ function clipPolygonHalfPlane(
     const bin = fb <= 0;
 
     if (ain && bin) {
-      out.push({ x: B.x, y: B.y }); // keep B
+      out.push({ x: B.x, y: B.y }); // in -> in: keep B
     } else if (ain && !bin) {
-      const t = fa / (fa - fb); // intersection
+      const t = fa / (fa - fb); // in -> out: keep intersection
       out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
     } else if (!ain && bin) {
-      const t = fa / (fa - fb); // intersection + B
+      const t = fa / (fa - fb); // out -> in: keep intersection then B
       out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
       out.push({ x: B.x, y: B.y });
     }
