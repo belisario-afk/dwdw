@@ -26,6 +26,7 @@
       a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
     </style>
     <script>
+      // Prevent Spotify SDK "undefined callback" warning
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function(){};
     </script>
     <script async src="https://sdk.scdn.co/spotify-player.js"></script>
@@ -79,6 +80,36 @@
         <div id="screensaver"><div class="panel">Screensaver — press any key</div></div>
       </div>
     </div>
+
+    <!-- Safety shim: create hidden placeholders for any missing controls to avoid null crashes -->
+    <script>
+      (function ensureControls() {
+        const defs = [
+          // auth/topbar
+          ['btn-login','button'], ['btn-logout','button'], ['user-label','span'],
+          ['gpu-label','span'], ['fps-label','span'], ['btn-fullscreen','button'],
+          // transport
+          ['btn-prev','button'], ['btn-play','button'], ['btn-pause','button'], ['btn-next','button'],
+          ['seek','input'], ['time-label','span'], ['volume','input'], ['device-picker','select'],
+          // scenes
+          ['scene-select','select'], ['btn-crossfade','button'], ['btn-record','button'],
+          ['btn-vj','button'], ['btn-quality','button'], ['btn-accessibility','button'],
+          // containers
+          ['panels','div'], ['canvas-host','div'], ['bottombar','div'], ['topbar','div']
+        ];
+        for (const [id, tag] of defs) {
+          if (!document.getElementById(id)) {
+            const el = document.createElement(tag);
+            el.id = id;
+            el.className = 'hidden';
+            document.body.appendChild(el);
+            console.warn('Created placeholder for #' + id);
+          }
+        }
+      })();
+    </script>
+
+    <!-- App -->
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
