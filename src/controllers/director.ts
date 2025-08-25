@@ -656,7 +656,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       // Setup key hue target for palette morph
       if (typeof this.features.key === 'number') {
         const baseHue = (this.features.key % 12) * 30; // map 12 keys to 360°
-        const modeAdj = (this.features.mode ?? 1) === 1 ? 0 : -15; // minor shifts slightly cooler
+        the const modeAdj = (this.features.mode ?? 1) === 1 ? 0 : -15; // minor shifts slightly cooler
         this.keyHueTarget = ((baseHue + modeAdj) + 360) % 360;
         this.keyHueCurrent = this.keyHueTarget;
       } else {
@@ -730,7 +730,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bh = this.bufferA.height;
 
     const curName = this.sceneName;
-       const nextName = this.nextSceneName;
+    const nextName = this.nextSceneName;
 
     // Update current lyric line (if any)
     this.updateCurrentLyricLine();
