@@ -154,6 +154,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private playbackMs = 0;
   private playbackIsPlaying = false;
   private pbPollTimer: any = null;
+  private hadPlaybackPoll = false; // true once we get state at least once
 
   // Beat Ball scene
   private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
@@ -605,6 +606,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.playbackMs = 0;
     this.currentLyricIndex = -1;
 
+    // Assume playing until SDK tells us otherwise (soft clock)
+    this.playbackIsPlaying = true;
+    this.hadPlaybackPoll = false;
+
     // Flow field / album sampler: set new album art if available
     const art = track.album?.images?.[0]?.url || null;
     if (art) {
@@ -708,8 +713,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private render(dt: number, time: number) {
-    // Update local playback progress for lyric timing
-    if (this.playbackIsPlaying) this.playbackMs += dt * 1000;
+    // Update local playback progress for lyric timing.
+    if (this.playbackIsPlaying || (!this.hadPlaybackPoll && this.lyrics)) {
+      this.playbackMs += dt * 1000;
+    }
 
     // Beats
     this.updateBeat(time);
@@ -723,7 +730,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bh = this.bufferA.height;
 
     const curName = this.sceneName;
-    const nextName = this.nextSceneName;
+       const nextName = this.nextSceneName;
 
     // Update current lyric line (if any)
     this.updateCurrentLyricLine();
@@ -2100,6 +2107,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         // Optional cached method
         const pb = await (this.api as any).getCurrentPlaybackCached?.();
         if (pb) {
+          this.hadPlaybackPoll = true;
           this.playbackIsPlaying = !!pb.is_playing;
           const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
 
@@ -2127,15 +2135,38 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
-    if (!this.lyrics || !this.lyrics.lines.length || this.currentLyricIndex < 0) return;
+    if (!this.lyrics || !this.lyrics.lines.length) return;
 
-    const line = this.lyrics.lines[this.currentLyricIndex];
-    const text = (line?.text || '').trim();
-    if (!text) return;
-
+    const lines = this.lyrics.lines;
     const t = this.playbackMs / 1000;
+
+    // Choose a line to show:
+    let idx = this.currentLyricIndex;
+    if (idx < 0) {
+      if (t < lines[0].start) {
+        idx = 0;
+      } else if (t > lines[lines.length - 1].end) {
+        idx = lines.length - 1;
+      } else {
+        idx = lines.findIndex(l => t < l.end);
+        if (idx === -1) idx = lines.length - 1;
+      }
+    }
+
+    const line = lines[idx];
+    const raw = (line?.text || '').trim();
+    if (!raw) return;
+    const text = raw;
+
     const dur = Math.max(0.1, (line.end - line.start) || 0.1);
-    const progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+    let progress = 0;
+    if (t >= line.start && t <= line.end) {
+      progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+    } else if (t > line.end) {
+      progress = 1;
+    } else {
+      progress = 0;
+    }
 
     // Style
     const minDim = Math.min(W, H);
@@ -2444,4 +2475,101 @@ function tintRgbTowardHue(c: { r: number; g: number; b: number }, hue: number, a
     g: Math.round(lerp(c.g, tgt.g, amt)),
     b: Math.round(lerp(c.b, tgt.b, amt))
   };
+}
+
+// Parse helpers for lyrics
+
+function parseTimeTag(min: string, sec: string, frac?: string) {
+  const m = parseInt(min, 10) || 0;
+  const s = parseInt(sec, 10) || 0;
+  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
+  return m * 60 + s + f / 1000;
+}
+
+// Parse standard LRC with optional per-word tags like <mm:ss.xx>
+function parseLRC(lrc: string): LyricLine[] {
+  const lines: { ts: number; text: string }[] = [];
+  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
+
+  const rawLines = lrc.split(/\r?\n/);
+  for (const raw of rawLines) {
+    if (!raw.trim()) continue;
+    // Extract all leading time tags
+    let match: RegExpExecArray | null;
+    timeTag.lastIndex = 0;
+    const stamps: number[] = [];
+    let textStartIdx = 0;
+    while ((match = timeTag.exec(raw))) {
+      stamps.push(parseTimeTag(match[1], match[2], match[3]));
+      textStartIdx = timeTag.lastIndex;
+    }
+    const text = raw.slice(textStartIdx).trim();
+    if (!stamps.length || !text) continue;
+    for (const ts of stamps) {
+      lines.push({ ts, text });
+    }
+  }
+  // Sort by timestamp
+  lines.sort((a, b) => a.ts - b.ts);
+
+  // Build line objects and estimate end time as next start
+  const out: LyricLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const start = lines[i].ts;
+    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
+    out.push({ start, end, text: lines[i].text });
+  }
+
+  // Optional: per-word timing if inline tags exist
+  if (lrc.indexOf('<') !== -1) {
+    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
+    for (const ln of out) {
+      const src = ln.text;
+      wordTag.lastIndex = 0;
+      const words: LyricWord[] = [];
+      let lastIdx = 0;
+      let m: RegExpExecArray | null;
+      const starts: number[] = [];
+      let collectedText = '';
+      while ((m = wordTag.exec(src))) {
+        const before = src.slice(lastIdx, m.index);
+        if (before.trim()) {
+          collectedText += before;
+        }
+        const start = parseTimeTag(m[1], m[2], m[3]);
+        starts.push(start);
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
+      if (starts.length && collectedText.trim()) {
+        const tokens = collectedText.trim().split(/\s+/);
+        const N = Math.min(tokens.length, starts.length);
+        for (let i = 0; i < N; i++) {
+          const st = starts[i];
+          const en = i + 1 < N ? starts[i + 1] : ln.end;
+          words.push({ start: st, end: en, text: tokens[i] });
+        }
+        ln.words = words;
+        ln.text = tokens.join(' ');
+      }
+    }
+  }
+
+  return out;
+}
+
+// Fallback: evenly distribute plain lyrics lines across track duration
+function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
+  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!rows.length || durationSec <= 0) return [];
+  const base = 1.0; // start at 1s in
+  const total = Math.max(5, durationSec - 1);
+  const step = Math.max(1, total / rows.length);
+  const out: LyricLine[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const start = base + i * step;
+    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
+    out.push({ start, end, text: rows[i] });
+  }
+  return out;
 }
