@@ -16,19 +16,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Node
+
+      # Setup Node with cache only if a lockfile exists
+      - name: Setup Node (with cache)
+        if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/yarn.lock') != '' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - name: Install
+          cache-dependency-path: |
+            **/package-lock.json
+            **/npm-shrinkwrap.json
+            **/yarn.lock
+
+      - name: Setup Node (no cache)
+        if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/yarn.lock') == '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Install deps: prefer ci when lockfile present, else install
+      - name: Install (npm ci)
+        if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') != '' }}
         run: npm ci
+
+      - name: Install (npm install)
+        if: ${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') == '' }}
+        run: npm install
+
       - name: Build
         run: npm run build
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
