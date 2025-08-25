@@ -24,6 +24,15 @@ type AudioFeaturesLite = {
 
 type Confetti = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number; size: number; };
 
+// Flow field particle
+type FlowP = {
+  x: number; y: number;
+  px: number; py: number;   // previous pos for streaks
+  vx: number; vy: number;
+  life: number; ttl: number;
+  hue: number; size: number; alpha: number;
+};
+
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -92,6 +101,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   // Beat Ball scene
   private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
 
+  // Album art flow field
+  private albumArtUrl: string | null = null;
+  private flowW = 0;
+  private flowH = 0;
+  private flowVec: Float32Array | null = null; // [vx, vy] per texel (tangent)
+  private flowMag: Float32Array | null = null; // magnitude 0..1
+  private flowParticles: FlowP[] = [];
+  private flowParticlesTarget = 0;
+
   constructor(private api: SpotifyAPI) {
     super();
 
@@ -129,6 +147,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       // Reset ball to center
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
+
+      // Flow particles target count
+      this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
+      // Re-initialize particles to fit new size smoothly
+      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
+        this.ensureFlowParticles();
+      }
     };
     window.addEventListener('resize', onResize);
     onResize();
@@ -148,6 +173,27 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.basePalette = { ...p, colors: [...p.colors] };
     this.palette = { ...p, colors: [...p.colors] };
     this.emit('palette', p);
+  }
+
+  // New: set album art for Flow Field scene
+  async setAlbumArt(url: string | null) {
+    if (!url || url === this.albumArtUrl) return;
+    this.albumArtUrl = url;
+    try {
+      const img = await loadImage(url);
+      await this.buildFlowField(img);
+      // Reset particles to take advantage of new field
+      this.flowParticles = [];
+      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
+        this.ensureFlowParticles();
+      }
+    } catch (e) {
+      // If art fails (CORS/404), clear field so scene will fallback gracefully
+      this.flowVec = null;
+      this.flowMag = null;
+      this.flowW = 0;
+      this.flowH = 0;
+    }
   }
 
   requestScene(scene: string) {
@@ -217,6 +263,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
           this.reduceMotion = (e.target as HTMLInputElement).checked;
+          // Update flow particles target on motion toggle
+          this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
+          this.ensureFlowParticles();
           this.togglePanel('access', false);
         });
       panel.querySelector<HTMLInputElement>('#audio-reactive')!
@@ -269,6 +318,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Reset beat phase on new track
     this.beatCount = 0;
 
+    // Flow field: set new album art if available
+    const art = track.album?.images?.[0]?.url || null;
+    if (art) {
+      this.setAlbumArt(art).catch(() => {});
+    }
+
     if (!track.id || (track as any).is_local) {
       this.lastTrackId = null;
       this.features = {};
@@ -306,13 +361,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         this.keyHueTarget = null;
       }
 
-      // Optional: analysis for bar alignment (not required for downbeats here)
-      try {
-        await this.api.getAudioAnalysis(track.id);
-        // You could use analysis.bars to align downbeats precisely if you also pass playback position
-      } catch {
-        // ignore analysis errors
-      }
+      // Optional analysis: not required here
     } catch {
       // Back off features if forbidden
       this.features = {};
@@ -430,6 +479,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') {
         this.onBeat_LyricLines();
       }
+      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
+        this.onBeat_FlowField();
+      }
 
       // Downbeat every N beats
       if (this.beatCount % this.downbeatEvery === 1) {
@@ -457,9 +509,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     // Auto scene switching only when current mode is Auto
     if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
-      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball'];
-      const current = this.sceneName;
-      // pick a scene different from what we'll become (we’re in Auto)
+      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field'];
       const pick = choices[(Math.random() * choices.length) | 0];
       this.requestScene(pick);
     }
@@ -474,6 +524,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         break;
       case 'Beat Ball':
         this.drawBeatBall(ctx, w, h, time, dt);
+        break;
+      case 'Flow Field':
+        this.drawFlowField(ctx, w, h, time, dt);
         break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
@@ -635,8 +688,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         a.vx += (Math.random() - 0.5) * noise;
         a.vy += (Math.random() - 0.5) * noise;
       }
-      a.vx *= damping;
-      a.vy *= damping;
+      a.vx *= 0.86;
+      a.vy *= 0.86;
       a.x += a.vx;
       a.y += a.vy;
     }
@@ -816,6 +869,250 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.palette = blendPalettes(this.basePalette, shifted, mixAmt);
   }
 
+  // Flow Field: build vector field from album art using Sobel edges
+  private async buildFlowField(img: HTMLImageElement) {
+    // Choose a compact field size for performance
+    const maxDim = this.reduceMotion ? 112 : 160;
+    const aspect = img.naturalWidth / img.naturalHeight;
+    let w = 0, h = 0;
+    if (aspect >= 1) { // wide
+      w = maxDim;
+      h = Math.max(16, Math.round(maxDim / aspect));
+    } else {
+      h = maxDim;
+      w = Math.max(16, Math.round(maxDim * aspect));
+    }
+
+    // Draw into an offscreen canvas with "cover" fit to preserve composition
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    const o = off.getContext('2d')!;
+    o.clearRect(0, 0, w, h);
+
+    // Compute cover-fit draw rect
+    const cw = img.naturalWidth;
+    const ch = img.naturalHeight;
+    const targetAR = w / h;
+    const srcAR = cw / ch;
+    let sx = 0, sy = 0, sw = cw, sh = ch;
+    if (srcAR > targetAR) {
+      // source is wider: crop width
+      sw = ch * targetAR;
+      sx = (cw - sw) / 2;
+    } else {
+      // source is taller: crop height
+      sh = cw / targetAR;
+      sy = (ch - sh) / 2;
+    }
+    o.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+
+    const data = o.getImageData(0, 0, w, h).data;
+    // Grayscale luminance
+    const lum = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      lum[p] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    const vec = new Float32Array(w * h * 2);
+    const mag = new Float32Array(w * h);
+
+    // Sobel kernels produce gradient (gx, gy)
+    const idx = (x: number, y: number) => y * w + x;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i00 = idx(x - 1, y - 1), i01 = idx(x, y - 1), i02 = idx(x + 1, y - 1);
+        const i10 = idx(x - 1, y),     i11 = idx(x, y),     i12 = idx(x + 1, y);
+        const i20 = idx(x - 1, y + 1), i21 = idx(x, y + 1), i22 = idx(x + 1, y + 1);
+
+        const gx =
+          -lum[i00] + lum[i02] +
+          -2 * lum[i10] + 2 * lum[i12] +
+          -lum[i20] + lum[i22];
+
+        const gy =
+          -lum[i00] - 2 * lum[i01] - lum[i02] +
+           lum[i20] + 2 * lum[i21] + lum[i22];
+
+        // Tangent to the edge = perpendicular to gradient
+        let tx = -gy, ty = gx;
+        const m = Math.hypot(tx, ty);
+        const pos = idx(x, y);
+
+        if (m > 1e-3) {
+          tx /= m; ty /= m;
+          vec[pos * 2 + 0] = tx;
+          vec[pos * 2 + 1] = ty;
+          // edge magnitude (normalize and curve for contrast)
+          const em = Math.min(1, Math.hypot(gx, gy) / 512);
+          mag[pos] = Math.pow(em, 0.7);
+        } else {
+          vec[pos * 2 + 0] = 0;
+          vec[pos * 2 + 1] = 0;
+          mag[pos] = 0;
+        }
+      }
+    }
+
+    this.flowW = w;
+    this.flowH = h;
+    this.flowVec = vec;
+    this.flowMag = mag;
+  }
+
+  private ensureFlowParticles() {
+    const W = this.bufferA.width;
+    const H = this.bufferA.height;
+    this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
+    while (this.flowParticles.length < this.flowParticlesTarget) {
+      const hue = this.keyHueTarget != null && this.keyColorEnabled
+        ? (this.keyHueTarget + Math.random() * 40 - 20 + 360) % 360
+        : rgbToHsl(hexToRgb(this.palette.colors[this.flowParticles.length % this.palette.colors.length] || this.palette.dominant)!).h;
+
+      this.flowParticles.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        px: 0, py: 0,
+        vx: 0, vy: 0,
+        life: 0,
+        ttl: 2 + Math.random() * 5,
+        hue,
+        size: this.reduceMotion ? 0.7 : 1.1,
+        alpha: 0.5 + Math.random() * 0.5
+      });
+    }
+    // Trim if needed
+    if (this.flowParticles.length > this.flowParticlesTarget) {
+      this.flowParticles.length = this.flowParticlesTarget;
+    }
+    // Initialize previous positions
+    for (const p of this.flowParticles) { p.px = p.x; p.py = p.y; }
+  }
+
+  private onBeat_FlowField() {
+    // On beat: refresh some particles and boost alpha
+    const n = Math.min(120, Math.round((this.flowParticles.length * 0.08) || 0));
+    const W = this.bufferA.width, H = this.bufferA.height;
+    for (let i = 0; i < n; i++) {
+      const idx = (Math.random() * this.flowParticles.length) | 0;
+      const p = this.flowParticles[idx];
+      p.x = Math.random() * W;
+      p.y = Math.random() * H;
+      p.px = p.x; p.py = p.y;
+      p.vx *= 0.2; p.vy *= 0.2;
+      p.life = 0;
+      p.ttl = 1.5 + Math.random() * 4;
+      p.alpha = 0.8;
+    }
+  }
+
+  private drawFlowField(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    // Background subtle fill using palette
+    const bg = ctx.createLinearGradient(0, 0, w, h);
+    bg.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
+    bg.addColorStop(1, this.palette.colors.at(-1) || this.palette.secondary);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Trails: darken a bit to leave paths
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Ensure field and particles
+    if (!this.flowVec || !this.flowMag || !this.flowW || !this.flowH) {
+      // Fallback to a simple swirly field
+      this.drawParticles(ctx, w, h, time, dt);
+      return;
+    }
+    this.ensureFlowParticles();
+
+    const baseSpeed = (this.reduceMotion ? 24 : 36) + (this.features.energy ?? 0.5) * (this.reduceMotion ? 24 : 42);
+    const beatBoost = this.beatActive ? 1.45 : 1.0;
+    const jitter = this.reduceMotion ? 0.1 : 0.18;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < this.flowParticles.length; i++) {
+      const p = this.flowParticles[i];
+
+      // Sample flow vector (bilinear)
+      const fx = (p.x / w) * (this.flowW - 1);
+      const fy = (p.y / h) * (this.flowH - 1);
+      const ix = Math.floor(fx), iy = Math.floor(fy);
+      const tx = fx - ix, ty = fy - iy;
+
+      const v00 = this.getFlow(ix,     iy);
+      const v10 = this.getFlow(ix + 1, iy);
+      const v01 = this.getFlow(ix,     iy + 1);
+      const v11 = this.getFlow(ix + 1, iy + 1);
+
+      // bilinear interpolate vector
+      const vx = lerp(lerp(v00[0], v10[0], tx), lerp(v01[0], v11[0], tx), ty);
+      const vy = lerp(lerp(v00[1], v10[1], tx), lerp(v01[1], v11[1], tx), ty);
+
+      // magnitude for this texel
+      const m00 = this.getMag(ix,     iy);
+      const m10 = this.getMag(ix + 1, iy);
+      const m01 = this.getMag(ix,     iy + 1);
+      const m11 = this.getMag(ix + 1, iy + 1);
+      const m = lerp(lerp(m00, m10, tx), lerp(m01, m11, tx), ty);
+
+      // Desired velocity along field
+      const targetVx = vx * baseSpeed * (0.4 + m) * beatBoost;
+      const targetVy = vy * baseSpeed * (0.4 + m) * beatBoost;
+
+      // Integrate with some inertia
+      p.vx = lerp(p.vx, targetVx, 0.08 + m * 0.12);
+      p.vy = lerp(p.vy, targetVy, 0.08 + m * 0.12);
+
+      // Jitter to keep it lively
+      p.vx += (Math.random() - 0.5) * jitter;
+      p.vy += (Math.random() - 0.5) * jitter;
+
+      // Advance
+      p.px = p.x; p.py = p.y;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      // Wrap / respawn
+      p.life += dt;
+      if (p.life > p.ttl || p.x < -2 || p.y < -2 || p.x > w + 2 || p.y > h + 2) {
+        p.x = Math.random() * w;
+        p.y = Math.random() * h;
+        p.px = p.x; p.py = p.y;
+        p.vx = 0; p.vy = 0;
+        p.life = 0;
+        p.ttl = 1.5 + Math.random() * 4;
+        // Slight hue drift
+        p.hue = (p.hue + (Math.random() - 0.5) * 20) % 360;
+      }
+
+      // Draw streak
+      const alpha = Math.min(1, p.alpha * (0.6 + m));
+      ctx.strokeStyle = `hsla(${p.hue}, 90%, ${60 + (this.features.valence ?? 0.5) * 20}%, ${alpha})`;
+      ctx.lineWidth = p.size * (1 + m * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(p.px, p.py);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private getFlow(x: number, y: number): [number, number] {
+    x = clampInt(x, 0, this.flowW - 1);
+    y = clampInt(y, 0, this.flowH - 1);
+    const i = (y * this.flowW + x) * 2;
+    return [this.flowVec ? this.flowVec[i] : 0, this.flowVec ? this.flowVec[i + 1] : 0];
+  }
+  private getMag(x: number, y: number): number {
+    x = clampInt(x, 0, this.flowW - 1);
+    y = clampInt(y, 0, this.flowH - 1);
+    const i = (y * this.flowW + x);
+    return this.flowMag ? this.flowMag[i] : 0;
+  }
+
   // Panels infra
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
@@ -872,6 +1169,25 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     };
     return `rgb(${c.r}, ${c.g}, ${c.b})`;
   }
+}
+
+// Utility functions
+
+function clampInt(v: number, min: number, max: number) {
+  return v < min ? min : v > max ? max : v | 0;
+}
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
 }
 
 // Color utils

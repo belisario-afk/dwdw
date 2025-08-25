@@ -99,6 +99,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
             const palette = await Palette.fromImageURL(img);
             ui.applyPalette(palette);
             director.setPalette(palette);
+            // New: hand album art URL to director for Flow Field scene
+            director.setAlbumArt(img).catch(() => {});
           } catch (e) {
             console.warn('Palette extraction failed', e);
           }
