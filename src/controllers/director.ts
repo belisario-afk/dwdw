@@ -141,6 +141,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private lyrics: LyricsState | null = null;
   private currentLyricIndex = -1;
 
+  // Lyrics overlay settings
+  private lyricsOverlayEnabled = true;
+  private lyricsOverlayScale = 1.0;
+
   // Playback progress (for lyrics timing)
   private playbackMs = 0;
   private playbackIsPlaying = false;
@@ -487,14 +491,26 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private toggleLyricsPanel(force?: boolean) {
     this.mountPanel('lyrics', 'Lyrics', (panel) => {
       panel.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:10px;min-width:260px;">
+        <div style="display:flex;flex-direction:column;gap:10px;min-width:280px;">
           <label style="display:flex;gap:8px;align-items:center;">
             <input id="lyr-auto" type="checkbox" ${this.lyricsAutoFetch ? 'checked' : ''}/>
             <span>Auto‑fetch lyrics (LRCLIB)</span>
           </label>
+
+          <label style="display:flex;gap:8px;align-items:center;">
+            <input id="lyr-overlay" type="checkbox" ${this.lyricsOverlayEnabled ? 'checked' : ''}/>
+            <span>Show lyrics overlay</span>
+          </label>
+
+          <label>Overlay size:
+            <input id="lyr-size" type="range" min="0.7" max="1.6" step="0.05" value="${this.lyricsOverlayScale}">
+            <span id="lyr-size-val">${this.lyricsOverlayScale.toFixed(2)}x</span>
+          </label>
+
           <div style="font-size:12px;opacity:.8;">
-            Provider: LRCLIB (synced when available). We never scrape sites.
+            Provider: LRCLIB (synced when available). We don't scrape lyrics sites.
           </div>
+
           <div id="lyr-status" style="font-size:12px;opacity:.9;">
             ${this.lyrics?.lines?.length ? `Loaded ${this.lyrics.lines.length} line(s)${this.lyrics.synced ? ' (synced)' : ''}.` : 'No lyrics loaded.'}
           </div>
@@ -508,10 +524,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         .addEventListener('change', (e) => {
           this.lyricsAutoFetch = (e.target as HTMLInputElement).checked;
           if (this.lyricsAutoFetch && this.lastTrackId) {
-            // Try fetch immediately for current track
             this.refetchLyricsForCurrentTrack().catch(() => {});
           }
           this.togglePanel('lyrics', false);
+        });
+      panel.querySelector<HTMLInputElement>('#lyr-overlay')!
+        .addEventListener('change', (e) => {
+          this.lyricsOverlayEnabled = (e.target as HTMLInputElement).checked;
+          this.togglePanel('lyrics', false);
+        });
+      panel.querySelector<HTMLInputElement>('#lyr-size')!
+        .addEventListener('input', (e) => {
+          const v = Number((e.target as HTMLInputElement).value);
+          this.lyricsOverlayScale = Math.max(0.7, Math.min(1.6, v));
+          const label = panel.querySelector('#lyr-size-val');
+          if (label) label.textContent = `${this.lyricsOverlayScale.toFixed(2)}x`;
         });
       panel.querySelector<HTMLButtonElement>('#lyr-refetch')!
         .addEventListener('click', () => {
@@ -522,10 +549,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         .addEventListener('click', () => {
           this.lyrics = null;
           this.currentLyricIndex = -1;
-          // Reset Lyric Lines text to Track — Artist if we had it
-          if (this.lastTrackId) {
-            // Keep current fallback text as-is
-          }
           this.togglePanel('lyrics', false);
         });
     });
@@ -554,8 +577,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Reset beat phase on new track
     this.beatCount = 0;
 
-    // Track duration
+    // Track duration and reset overlay timing
     this.lastTrackDurationMs = track.duration_ms ?? 0;
+    this.playbackMs = 0;
+    this.currentLyricIndex = -1;
 
     // Flow field: set new album art if available
     const art = track.album?.images?.[0]?.url || null;
@@ -707,6 +732,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     // Confetti overlay
     this.drawConfetti(this.ctx, W, H, dt);
+
+    // Lyrics overlay (on top of everything)
+    this.drawLyricsOverlay(this.ctx, W, H);
 
     // Scene label
     this.ctx.fillStyle = '#ffffff88';
@@ -886,7 +914,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  private drawTerrain(ctx: CanvasRenderingContext22D, w: number, h: number, time: number, dt: number) {
+  private drawTerrain(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     const rows = this.reduceMotion ? 20 : 50;
     ctx.clearRect(0, 0, w, h);
     ctx.lineWidth = 2;
@@ -1752,7 +1780,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private async refetchLyricsForCurrentTrack() {
     if (!this.lastTrackId) return;
     try {
-      // Try to get current playback track object so we have accurate artist/title
       const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
       const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
       if (tr) return this.fetchLyricsLRCLIB(tr);
@@ -1796,7 +1823,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       this.lyrics = state;
       this.currentLyricIndex = -1; // force refresh
-    } catch (e) {
+    } catch {
       // Fail silently; keep fallback text
       this.lyrics = null;
       this.currentLyricIndex = -1;
@@ -1836,13 +1863,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         if (pb) {
           this.playbackIsPlaying = !!pb.is_playing;
           const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-          // If Spotify switched track outside our onTrack flow, update trackId and try lyrics fetch
           const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
           if (tr && tr.id && tr.id !== this.lastTrackId) {
-            // Let existing onTrack handle palette/features; just adopt progress here
             this.onTrack(tr).catch(() => {});
           }
-          // Only jump progress if drift is large; otherwise let local dt smooth it
           const drift = Math.abs(ms - this.playbackMs);
           if (drift > 750) this.playbackMs = ms; // resync if >0.75s drift
         }
@@ -1853,6 +1877,108 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.pbPollTimer) clearInterval(this.pbPollTimer);
     this.pbPollTimer = setInterval(tick, 1000);
     tick().catch(() => {});
+  }
+
+  // Lyrics overlay renderer
+
+  private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    if (!this.lyricsOverlayEnabled) return;
+    if (!this.lyrics || !this.lyrics.lines.length || this.currentLyricIndex < 0) return;
+
+    const line = this.lyrics.lines[this.currentLyricIndex];
+    const text = (line?.text || '').trim();
+    if (!text) return;
+
+    const t = this.playbackMs / 1000;
+    const dur = Math.max(0.1, (line.end - line.start) || 0.1);
+    const progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+
+    // Style
+    const minDim = Math.min(W, H);
+    const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
+    const margin = Math.round(minDim * 0.05);
+    const padX = Math.round(fontPx * 0.6);
+    const padY = Math.round(fontPx * 0.45);
+
+    ctx.save();
+
+    // Measure text
+    const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    ctx.font = fontFace;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const metrics = ctx.measureText(text);
+    const textW = metrics.width;
+    const boxW = Math.min(W - margin * 2, Math.ceil(textW + padX * 2));
+    const boxH = Math.ceil(fontPx + padY * 2);
+
+    const cx = W / 2;
+    const by = H - margin; // bottom baseline position
+    const bx = cx - boxW / 2;
+    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
+
+    // Background panel (for readability)
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#000';
+    roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Base (unfilled) text
+    ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.shadowColor = 'transparent';
+    ctx.strokeText(text, cx, by);
+    ctx.fillText(text, cx, by);
+
+    // Progress highlight
+    const baseHue =
+      this.keyHueTarget != null && this.keyColorEnabled
+        ? this.keyHueTarget
+        : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
+    const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
+    const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
+    grad.addColorStop(0, hi);
+    grad.addColorStop(1, hi2);
+
+    // Clip to progress width relative to text
+    const progW = textW * progress;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - textW / 2, by - fontPx, Math.max(0, progW), fontPx * 1.2);
+    ctx.clip();
+
+    ctx.fillStyle = grad;
+    ctx.shadowColor = hi;
+    ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
+    ctx.fillText(text, cx, by);
+    ctx.restore();
+
+    // Underline progress bar
+    const barY = by + Math.round(fontPx * 0.18);
+    const barR = Math.round(Math.min(10, fontPx * 0.18));
+    const barPad = Math.round(padX * 0.4);
+    const barW = boxW - barPad * 2;
+    const filled = Math.round(barW * progress);
+
+    // Track
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Fill
+    const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
+    barGrad.addColorStop(0, hi);
+    barGrad.addColorStop(1, hi2);
+    ctx.fillStyle = barGrad;
+    roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
+    ctx.fill();
+
+    ctx.restore();
   }
 
   // Panels infra
@@ -2075,7 +2201,6 @@ function parseLRC(lrc: string): LyricLine[] {
   }
 
   // Optional: per-word timing if inline tags exist
-  // Detect a sample with "<mm:ss.xx>" to decide whether to parse
   if (lrc.indexOf('<') !== -1) {
     const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
     for (const ln of out) {
@@ -2083,11 +2208,9 @@ function parseLRC(lrc: string): LyricLine[] {
       wordTag.lastIndex = 0;
       const words: LyricWord[] = [];
       let lastIdx = 0;
-      let prevStart: number | null = null;
       let m: RegExpExecArray | null;
-      let collectedText = '';
       const starts: number[] = [];
-      const texts: string[] = [];
+      let collectedText = '';
       while ((m = wordTag.exec(src))) {
         const before = src.slice(lastIdx, m.index);
         if (before.trim()) {
@@ -2097,9 +2220,7 @@ function parseLRC(lrc: string): LyricLine[] {
         starts.push(start);
         lastIdx = m.index + m[0].length;
       }
-      // Remaining text after last tag
       if (lastIdx < src.length) collectedText += src.slice(lastIdx);
-      // Split collectedText into tokens approximately equal to starts length
       if (starts.length && collectedText.trim()) {
         const tokens = collectedText.trim().split(/\s+/);
         const N = Math.min(tokens.length, starts.length);
@@ -2109,7 +2230,6 @@ function parseLRC(lrc: string): LyricLine[] {
           words.push({ start: st, end: en, text: tokens[i] });
         }
         ln.words = words;
-        // Replace line text with tokens joined (no tags)
         ln.text = tokens.join(' ');
       }
     }
