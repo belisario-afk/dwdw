@@ -14,39 +14,29 @@ type DirectorEvents = {
 };
 
 type AudioFeaturesLite = {
-  tempo?: number;           // BPM
-  energy?: number;          // 0..1
-  danceability?: number;    // 0..1
-  valence?: number;         // 0..1
+  tempo?: number;        // BPM
+  energy?: number;       // 0..1
+  danceability?: number; // 0..1
 };
 
-/**
- * VisualDirector
- * - Renders simple scenes on a canvas so you always see visuals.
- * - Supports scene switching, crossfade, quality and accessibility toggles.
- * - Optionally reacts to Spotify audio features (robust to 403s).
- */
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  // Rendering pipeline
   private running = false;
   private lastT = 0;
   private fpsAccum = 0;
   private fpsCount = 0;
 
-  // Double-buffer for quality/crossfade
-  private renderScale = 1;           // 0.5 low, 0.75 med, 1 high
+  private renderScale = 1;
   private bufferA: HTMLCanvasElement;
   private bufferB: HTMLCanvasElement;
   private bufCtxA: CanvasRenderingContext2D;
   private bufCtxB: CanvasRenderingContext2D;
-  private crossfadeT = 0;            // seconds remaining for crossfade
-  private crossfadeDur = 0.6;        // seconds
+  private crossfadeT = 0;
+  private crossfadeDur = 0.6;
   private nextSceneName: string | null = null;
 
-  // Scene state
   private sceneName: string = 'Auto';
   private palette: UIPalette = {
     dominant: '#22cc88',
@@ -55,16 +45,36 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   };
   private reduceMotion = false;
 
-  // Audio-features
-  private featuresEnabled = true;  // enable by default; we'll backoff if 403s
+  // Audio-reactivity
+  private featuresEnabled = true;
   private features: AudioFeaturesLite = {};
   private lastTrackId: string | null = null;
   private featuresBackoffUntil = 0;
 
+  // Beat scheduler
+  private beatInterval = 60 / 120; // seconds (default 120 BPM)
+  private nextBeatTime = 0;        // seconds since start (render time)
+  private beatPhaseJitter = 0;     // 0..beatInterval offset for variety
+  private lastBeatTime = -1;       // last beat timestamp
+  private beatActive = false;
+
+  // Lyric Lines scene state
+  private lyricText = 'DWDW';
+  private textField: HTMLCanvasElement | null = null;
+  private textPoints: Array<{ x: number; y: number }> = [];
+  private lyricAgents: Array<{ x: number; y: number; vx: number; vy: number; target: number }> = [];
+  private lastTextW = 0;
+  private lastTextH = 0;
+
+  // Beat Ball scene state
+  private ball = {
+    x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140
+  };
+
   constructor(private api: SpotifyAPI) {
     super();
 
-    // Create and mount canvas
+    // Canvas setup
     this.canvas = document.createElement('canvas');
     this.canvas.style.display = 'block';
     this.canvas.style.width = '100%';
@@ -76,7 +86,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (!c2d) throw new Error('2D context not available');
     this.ctx = c2d;
 
-    // Offscreen buffers
     this.bufferA = document.createElement('canvas');
     this.bufferB = document.createElement('canvas');
     const a = this.bufferA.getContext('2d');
@@ -85,7 +94,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.bufCtxA = a;
     this.bufCtxB = b;
 
-    // Resize
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
       const h = Math.max(360, Math.floor(window.innerHeight));
@@ -97,15 +105,23 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.bufferA.height = bh;
       this.bufferB.width = bw;
       this.bufferB.height = bh;
+
+      // Rebuild text field if needed
+      this.prepareTextField(this.lyricText, bw, bh);
+      // Reset ball to center
+      this.ball.x = w / 2; this.ball.y = h / 2;
+      if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
     };
     window.addEventListener('resize', onResize);
     onResize();
 
-    // Start render loop
+    // Initialize beat schedule
+    this.recomputeBeatSchedule();
+
     this.start();
   }
 
-  // Public API used by UI/main/VJ
+  // Public API
 
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
@@ -119,14 +135,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   requestScene(scene: string) {
     const name = scene || 'Auto';
     if (name === this.sceneName) return;
-    // Trigger crossfade to new scene
     this.nextSceneName = name;
     this.crossfadeT = this.crossfadeDur;
     this.emit('sceneChanged', name);
   }
 
   crossfadeNow() {
-    // Quick crossfade pulse to the same scene (visual nudge)
     this.nextSceneName = this.sceneName;
     this.crossfadeT = Math.max(this.crossfadeT, this.crossfadeDur * 0.6);
   }
@@ -147,11 +161,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           if (q === 'low') this.setRenderScale(0.5);
           if (q === 'med') this.setRenderScale(0.75);
           if (q === 'high') this.setRenderScale(1);
-          this.togglePanel('quality', false); // close
+          this.togglePanel('quality', false);
         });
       });
     });
-    this.togglePanel('quality', undefined); // toggle
+    this.togglePanel('quality', undefined);
   }
 
   toggleAccessibilityPanel() {
@@ -173,61 +187,97 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         });
       panel.querySelector<HTMLInputElement>('#audio-reactive')!
         .addEventListener('change', (e) => {
-          this.featuresEnabled = (e.target as HTMLInputElement).checked;
-          if (!this.featuresEnabled) this.features = {};
+          this.setFeaturesEnabled((e.target as HTMLInputElement).checked);
           this.togglePanel('access', false);
         });
     });
-    this.togglePanel('access', undefined); // toggle
+    this.togglePanel('access', undefined);
   }
 
   setFeaturesEnabled(on: boolean) {
     this.featuresEnabled = !!on;
     if (!on) this.features = {};
+    this.recomputeBeatSchedule();
   }
 
-  // Called by main when the track changes
+  setLyricText(text: string) {
+    this.lyricText = text || '';
+    this.prepareTextField(this.lyricText, this.bufferA.width, this.bufferA.height);
+  }
+
+  // Track hook
   async onTrack(track: SpotifyApi.TrackObjectFull | null) {
     if (!track) return;
+
+    // Update lyric text to "Track — Artist"
+    const artist = (track.artists && track.artists.length) ? track.artists.map(a => a.name).join(', ') : '';
+    this.setLyricText(`${track.name}${artist ? ' — ' + artist : ''}`);
+
+    // Reset beat jitter on new track
+    this.beatPhaseJitter = Math.random() * this.beatInterval;
+
+    // Audio features (optional)
     if (!track.id || (track as any).is_local) {
       this.lastTrackId = null;
       this.features = {};
+      this.recomputeBeatSchedule();
       return;
     }
     if (this.lastTrackId === track.id) return;
     this.lastTrackId = track.id;
 
-    // Auto scene can vary by track characteristics later if desired
-    if (this.sceneName === 'Auto' && !this.nextSceneName) {
-      const picks = ['Particles', 'Tunnel', 'Terrain'];
-      const idx = Math.abs(hashString(track.id)) % picks.length;
-      this.requestScene(picks[idx]);
-    }
-
     if (!this.featuresEnabled) return;
-    // Backoff if we recently hit 403
     if (Date.now() < this.featuresBackoffUntil) return;
 
     try {
       const f = await this.api.getAudioFeatures(track.id);
       this.features = {
-        tempo: clampNum(f?.tempo, 40, 220),
-        energy: clamp01(f?.energy),
-        danceability: clamp01(f?.danceability),
-        valence: clamp01(f?.valence)
+        tempo: typeof f?.tempo === 'number' ? f.tempo : undefined,
+        energy: typeof f?.energy === 'number' ? f.energy : undefined,
+        danceability: typeof f?.danceability === 'number' ? f.danceability : undefined
       };
-    } catch (e: any) {
-      // 403/404: set a backoff to avoid spamming
+      this.recomputeBeatSchedule();
+      // Try to refine beats from analysis (optional)
+      try {
+        const analysis = await this.api.getAudioAnalysis(track.id);
+        const beats: Array<{ start: number; duration: number; confidence: number }> = analysis?.beats || [];
+        if (beats && beats.length > 4) {
+          // Use average beat interval from confident beats
+          const intervals: number[] = [];
+          for (let i = 1; i < beats.length; i++) {
+            if (beats[i - 1].confidence > 0.3 && beats[i].confidence > 0.3) {
+              intervals.push(beats[i].start - beats[i - 1].start);
+            }
+          }
+          const avg = intervals.length ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0;
+          if (avg > 0.2 && avg < 2.0) {
+            this.beatInterval = avg;
+            this.beatPhaseJitter = 0;
+          }
+        }
+      } catch {
+        // ignore analysis errors
+      }
+    } catch {
+      // Back off features if forbidden
       this.features = {};
-      this.featuresBackoffUntil = Date.now() + 5 * 60 * 1000; // 5 min
+      this.featuresBackoffUntil = Date.now() + 5 * 60 * 1000;
+      this.recomputeBeatSchedule();
     }
   }
 
   // Internals
 
+  private recomputeBeatSchedule() {
+    const bpm = this.featuresEnabled && this.features.tempo ? this.features.tempo : 120;
+    this.beatInterval = 60 / Math.max(1, bpm);
+    // next beat aligned with current time + jitter
+    const now = this.lastT ? this.lastT / 1000 : 0;
+    this.nextBeatTime = now + (this.beatPhaseJitter || 0);
+  }
+
   private setRenderScale(s: number) {
     this.renderScale = Math.max(0.4, Math.min(1, s));
-    // Force resize to apply scale
     const evt = new Event('resize');
     window.dispatchEvent(evt);
   }
@@ -236,20 +286,22 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.running) return;
     this.running = true;
     this.lastT = performance.now();
+    // Initialize ball direction
+    this.ball.x = this.canvas.width / 2;
+    this.ball.y = this.canvas.height / 2;
+    this.randomizeBallDirection();
+
     const loop = (t: number) => {
       if (!this.running) return;
-      const dt = Math.min(0.1, (t - this.lastT) / 1000); // cap delta
+      const dt = Math.min(0.1, (t - this.lastT) / 1000);
       this.lastT = t;
       this.render(dt, t / 1000);
 
-      // FPS
-      this.fpsAccum += dt;
-      this.fpsCount++;
+      this.fpsAccum += dt; this.fpsCount++;
       if (this.fpsAccum >= 0.5) {
         const fps = this.fpsCount / this.fpsAccum;
         this.emit('fps', fps);
-        this.fpsAccum = 0;
-        this.fpsCount = 0;
+        this.fpsAccum = 0; this.fpsCount = 0;
       }
       requestAnimationFrame(loop);
     };
@@ -257,23 +309,21 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private render(dt: number, time: number) {
+    this.updateBeat(time);
+
     const W = this.canvas.width;
     const H = this.canvas.height;
     const bw = this.bufferA.width;
     const bh = this.bufferA.height;
 
-    // Determine scenes
     const curName = this.sceneName;
     const nextName = this.nextSceneName;
 
-    // Render current scene into buffer A
     this.drawScene(this.bufCtxA, bw, bh, time, dt, curName);
 
-    // If crossfading and next scene exists, render it and composite
     if (this.crossfadeT > 0 && nextName) {
       this.drawScene(this.bufCtxB, bw, bh, time, dt, nextName);
-      const t = 1 - this.crossfadeT / this.crossfadeDur; // 0..1
-      // Draw A then B with alpha t
+      const t = 1 - this.crossfadeT / this.crossfadeDur;
       this.ctx.clearRect(0, 0, W, H);
       this.ctx.imageSmoothingEnabled = true;
       this.ctx.drawImage(this.bufferA, 0, 0, W, H);
@@ -282,29 +332,47 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ctx.globalAlpha = 1;
       this.crossfadeT -= dt;
       if (this.crossfadeT <= 0) {
-        // Finish transition
         this.sceneName = nextName;
         this.nextSceneName = null;
         this.crossfadeT = 0;
       }
     } else {
-      // Normal draw
       this.ctx.clearRect(0, 0, W, H);
       this.ctx.imageSmoothingEnabled = true;
       this.ctx.drawImage(this.bufferA, 0, 0, W, H);
     }
 
-    // Tiny scene label
     this.ctx.fillStyle = '#ffffff88';
     this.ctx.font = '12px system-ui, sans-serif';
     this.ctx.textAlign = 'right';
     this.ctx.fillText(this.sceneName, W - 10, H - 10);
   }
 
-  // Scene implementations (simple but responsive)
+  private updateBeat(time: number) {
+    this.beatActive = false;
+    while (time >= this.nextBeatTime) {
+      this.beatActive = true;
+      this.lastBeatTime = this.nextBeatTime;
+      this.nextBeatTime += this.beatInterval;
+
+      // Trigger per-beat hooks
+      if (this.sceneName === 'Beat Ball' || this.nextSceneName === 'Beat Ball') {
+        this.onBeat_Ball();
+      }
+      if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') {
+        this.onBeat_LyricLines();
+      }
+    }
+  }
 
   private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
     switch (name) {
+      case 'Lyric Lines':
+        this.drawLyricLines(ctx, w, h, time, dt);
+        break;
+      case 'Beat Ball':
+        this.drawBeatBall(ctx, w, h, time, dt);
+        break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
         break;
@@ -324,8 +392,179 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
+  // New scene: Lyric Lines
+  private drawLyricLines(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    if (!this.textField || this.lastTextW !== w || this.lastTextH !== h) {
+      this.prepareTextField(this.lyricText, w, h);
+    }
+    if (this.lyricAgents.length === 0 && this.textPoints.length) {
+      this.initLyricAgents();
+    }
+
+    // background fade
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(0, 0, w, h);
+
+    // move agents toward their targets
+    const targetPts = this.textPoints;
+    const stiffness = this.beatActive ? 8 : 4;
+    const damping = 0.86;
+    const noise = this.reduceMotion ? 0.1 : 0.25;
+
+    for (const a of this.lyricAgents) {
+      const t = targetPts[a.target];
+      if (t) {
+        const dx = t.x - a.x;
+        const dy = t.y - a.y;
+        a.vx += (dx * stiffness) * dt + (Math.random() - 0.5) * noise;
+        a.vy += (dy * stiffness) * dt + (Math.random() - 0.5) * noise;
+      } else {
+        a.vx += (Math.random() - 0.5) * noise;
+        a.vy += (Math.random() - 0.5) * noise;
+      }
+      a.vx *= damping;
+      a.vy *= damping;
+      a.x += a.vx;
+      a.y += a.vy;
+    }
+
+    // connect agents into flowing lines sorted by x
+    const sorted = this.lyricAgents.slice().sort((p, q) => p.x - q.x);
+    ctx.lineWidth = this.beatActive ? 1.8 : 1.2;
+    ctx.strokeStyle = this.palette.colors[0] || this.palette.dominant;
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  private onBeat_LyricLines() {
+    // Reassign some agent targets for a ripple effect
+    if (!this.textPoints.length) return;
+    const count = Math.floor(this.lyricAgents.length * 0.08);
+    for (let i = 0; i < count; i++) {
+      const idx = (Math.random() * this.lyricAgents.length) | 0;
+      this.lyricAgents[idx].target = (Math.random() * this.textPoints.length) | 0;
+    }
+  }
+
+  private prepareTextField(text: string, w: number, h: number) {
+    this.lastTextW = w; this.lastTextH = h;
+    const sf = Math.min(w * 0.8, h * 0.32);
+    if (!this.textField) this.textField = document.createElement('canvas');
+    this.textField.width = w; this.textField.height = h;
+    const tctx = this.textField.getContext('2d')!;
+    tctx.clearRect(0, 0, w, h);
+    tctx.fillStyle = '#fff';
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
+    tctx.fillText(text || 'DWDW', w / 2, h / 2);
+
+    // sample points from text bitmap
+    const img = tctx.getImageData(0, 0, w, h).data;
+    const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const i = (y * w + x) * 4 + 3; // alpha
+        if (img[i] > 32) {
+          pts.push({ x, y });
+        }
+      }
+    }
+    // down-sample to a manageable number
+    const maxPts = 900;
+    this.textPoints = pts.length > maxPts
+      ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts)
+      : pts;
+
+    // reset agents (will be re-initialized)
+    this.lyricAgents = [];
+  }
+
+  private initLyricAgents() {
+    const n = Math.min(900, this.textPoints.length);
+    this.lyricAgents = new Array(n).fill(0).map(() => {
+      const target = (Math.random() * this.textPoints.length) | 0;
+      return {
+        x: Math.random() * this.bufferA.width,
+        y: Math.random() * this.bufferA.height,
+        vx: 0, vy: 0,
+        target
+      };
+    });
+  }
+
+  // New scene: Beat Ball
+  private drawBeatBall(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    // background
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
+    grad.addColorStop(1, this.palette.colors.at(-1) || this.palette.secondary);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // move ball
+    const speedScale = 0.6 + (this.features.energy ?? 0.5) * 0.9;
+    const spd = this.ball.speed * speedScale * (this.reduceMotion ? 0.6 : 1);
+    this.ball.x += this.ball.vx * spd * dt;
+    this.ball.y += this.ball.vy * spd * dt;
+
+    // bounce on walls
+    const r = this.ball.radius;
+    let bounced = false;
+    if (this.ball.x < r) { this.ball.x = r; this.ball.vx = Math.abs(this.ball.vx); bounced = true; }
+    else if (this.ball.x > w - r) { this.ball.x = w - r; this.ball.vx = -Math.abs(this.ball.vx); bounced = true; }
+    if (this.ball.y < r) { this.ball.y = r; this.ball.vy = Math.abs(this.ball.vy); bounced = true; }
+    else if (this.ball.y > h - r) { this.ball.y = h - r; this.ball.vy = -Math.abs(this.ball.vy); bounced = true; }
+
+    // draw ball with beat pulse
+    const sinceBeat = this.lastBeatTime < 0 ? 999 : (time - this.lastBeatTime);
+    const pulse = Math.max(0, 1 - sinceBeat * 6); // quick decay after beat
+    const size = r * (1 + 0.25 * pulse);
+    const hue = (this.ball.hue + (this.features.danceability ?? 0.5) * 90) % 360;
+
+    ctx.shadowBlur = 30 * (0.3 + pulse);
+    ctx.shadowColor = `hsla(${hue}, 90%, 60%, 0.9)`;
+    ctx.fillStyle = `hsla(${hue}, 90%, ${bounced ? 70 : 60}%, 0.95)`;
+    ctx.beginPath();
+    ctx.arc(this.ball.x, this.ball.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // trailing streaks
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 60%, 0.35)`;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(this.ball.x, this.ball.y);
+    ctx.lineTo(this.ball.x - this.ball.vx * 80, this.ball.y - this.ball.vy * 80);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private onBeat_Ball() {
+    // change direction randomly but keep normalized velocity
+    this.randomizeBallDirection();
+    // also shift color
+    this.ball.hue = (this.ball.hue + 47) % 360;
+  }
+
+  private randomizeBallDirection() {
+    const ang = Math.random() * Math.PI * 2;
+    this.ball.vx = Math.cos(ang);
+    this.ball.vy = Math.sin(ang);
+  }
+
+  // Existing scenes
+
   private drawAuto(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Smooth gradient pulse based on tempo/energy
     const energy = this.features.energy ?? 0.5;
     const bpm = this.features.tempo ?? 120;
     const pulse = (Math.sin(time * (bpm / 60) * Math.PI * 2) * 0.5 + 0.5) ** (2 - energy);
@@ -337,7 +576,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
 
-    // Overlay circles
     const count = this.reduceMotion ? 6 : 16;
     for (let i = 0; i < count; i++) {
       const t = time * (0.2 + (i % 5) * 0.07) + i;
@@ -359,7 +597,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const energy = this.features.energy ?? 0.6;
     const speed = (this.reduceMotion ? 20 : 60) * (0.5 + energy);
     ctx.clearRect(0, 0, w, h);
-    // trail
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.fillRect(0, 0, w, h);
 
@@ -372,7 +609,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       ctx.beginPath();
       const r = (Math.sin(time * 2 + i * 13.37) * 0.5 + 0.5) * (this.reduceMotion ? 1.5 : 3.5) + energy * 2;
-      ctx.arc(x + Math.sin(time + i) * speed * 0.01, y + Math.cos(time * 0.7 + i) * speed * 0.01, r, 0, Math.PI * 2);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = this.palette.colors[i % this.palette.colors.length];
       ctx.globalAlpha = 0.7;
       ctx.fill();
@@ -440,27 +677,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Utils
-
-  private mixColor(a: string, b: string, t: number) {
-    const pa = this.hexToRgb(a);
-    const pb = this.hexToRgb(b);
-    if (!pa || !pb) return a;
-    const c = {
-      r: Math.round(pa.r + (pb.r - pa.r) * t),
-      g: Math.round(pa.g + (pb.g - pa.g) * t),
-      b: Math.round(pa.b + (pb.b - pa.b) * t)
-    };
-    return `rgb(${c.r}, ${c.g}, ${c.b})`;
-  }
-
-  private hexToRgb(hex: string) {
-    const m = hex.trim().replace('#', '');
-    const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
-    const n = parseInt(s, 16);
-    if (Number.isNaN(n) || (s.length !== 6)) return null;
-    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-  }
+  // Panels
 
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
@@ -505,24 +722,26 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const show = force ?? panel.classList.contains('hidden');
     panel.classList.toggle('hidden', !show);
   }
-}
 
-// Helpers
-function clamp01(v: any): number | undefined {
-  if (typeof v !== 'number') return undefined;
-  if (Number.isNaN(v)) return undefined;
-  return Math.max(0, Math.min(1, v));
-}
-function clampNum(v: any, min: number, max: number): number | undefined {
-  if (typeof v !== 'number') return undefined;
-  if (Number.isNaN(v)) return undefined;
-  return Math.max(min, Math.min(max, v));
-}
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h << 5) - h + s.charCodeAt(i);
-    h |= 0;
+  // Utils
+
+  private mixColor(a: string, b: string, t: number) {
+    const pa = this.hexToRgb(a);
+    const pb = this.hexToRgb(b);
+    if (!pa || !pb) return a;
+    const c = {
+      r: Math.round(pa.r + (pb.r - pa.r) * t),
+      g: Math.round(pa.g + (pb.g - pa.g) * t),
+      b: Math.round(pa.b + (pb.b - pa.b) * t)
+    };
+    return `rgb(${c.r}, ${c.g}, ${c.b})`;
   }
-  return h;
+
+  private hexToRgb(hex: string) {
+    const m = hex.trim().replace('#', '');
+    const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
+    const n = parseInt(s, 16);
+    if (Number.isNaN(n) || (s.length !== 6)) return null;
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
 }

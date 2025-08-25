@@ -21,9 +21,7 @@ export class SpotifyAPI {
       try {
         detail = await resp.json();
       } catch {
-        try {
-          detail = { raw: await resp.text() };
-        } catch {}
+        try { detail = { raw: await resp.text() }; } catch {}
       }
       const message =
         (detail && (detail.error?.message || detail.message)) ||
@@ -39,8 +37,6 @@ export class SpotifyAPI {
     return resp.json();
   }
 
-  // ... your existing typed wrappers call this.request(...)
-  // Example:
   async getDevices() { return this.request('GET', '/me/player/devices'); }
   async getCurrentPlayback() { return this.request('GET', '/me/player'); }
   async getCurrentPlaybackCached() { return this.getCurrentPlayback(); }
@@ -51,4 +47,6 @@ export class SpotifyAPI {
   }
   async me() { return this.request('GET', '/me'); }
   async getAudioFeatures(trackId: string) { return this.request('GET', `/audio-features/${trackId}`); }
+  // Optional: refine beats when available (we swallow errors in the director)
+  async getAudioAnalysis(trackId: string) { return this.request('GET', `/audio-analysis/${trackId}`); }
 }
