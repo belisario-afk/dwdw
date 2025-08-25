@@ -4,7 +4,7 @@ type AuthOptions = {
   clientId: string;
   redirectUri: string;
   scopes: string[];
-}
+};
 
 type TokenResponse = {
   access_token: string;
@@ -21,29 +21,23 @@ type TokenSet = {
   scope: string[];
 };
 
-export class Auth extends Emitter<{
-  'tokens': TokenSet | null;
-}> {
-  private opts: AuthOptions;
+export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
   private tokens: TokenSet | null = null;
   private storageKey = 'dwdw.tokens';
   private verifierKey = 'dwdw.pkce.verifier';
   private stateKey = 'dwdw.pkce.state';
 
-  constructor(opts: AuthOptions) {
+  constructor(private opts: AuthOptions) {
     super();
-    this.opts = opts;
   }
 
   getAccessToken(): string | null {
     if (!this.tokens) return null;
-    if (Date.now() > this.tokens.expiresAt - 60000) {
-      return null;
-    }
+    if (Date.now() > this.tokens.expiresAt - 60000) return null;
     return this.tokens.accessToken;
   }
 
-  isAuthenticated(): boolean {
+  isAuthenticated() {
     return !!this.getAccessToken();
   }
 
@@ -55,8 +49,8 @@ export class Auth extends Emitter<{
       this.tokens = parsed;
       if (Date.now() > parsed.expiresAt - 60000) {
         if (parsed.refreshToken) {
-          await this.refresh();
-          return true;
+          await this.refresh().catch(() => {});
+          return !!this.getAccessToken();
         }
         return false;
       }
@@ -95,17 +89,13 @@ export class Auth extends Emitter<{
 
   async handleRedirectCallback(): Promise<void> {
     const url = new URL(location.href);
-    const params = url.searchParams.size
-      ? url.searchParams
-      : new URLSearchParams(url.hash.slice(2)); // support hash callback
+    const params = url.searchParams.size ? url.searchParams : new URLSearchParams(url.hash.slice(2));
     const code = params.get('code');
     const state = params.get('state');
     const storedState = sessionStorage.getItem(this.stateKey);
     const verifier = sessionStorage.getItem(this.verifierKey);
 
-    if (!code || !state || !verifier || state !== storedState) {
-      throw new Error('Invalid OAuth callback.');
-    }
+    if (!code || !state || !verifier || state !== storedState) throw new Error('Invalid OAuth callback.');
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -119,10 +109,7 @@ export class Auth extends Emitter<{
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body
     });
-    if (!resp.ok) {
-      const t = await resp.text();
-      throw new Error('Token exchange failed: ' + t);
-    }
+    if (!resp.ok) throw new Error('Token exchange failed: ' + (await resp.text()));
     const data = (await resp.json()) as TokenResponse;
     this.tokens = {
       accessToken: data.access_token,
@@ -163,11 +150,11 @@ export class Auth extends Emitter<{
   private generateCodeVerifier(): string {
     const arr = new Uint8Array(64);
     crypto.getRandomValues(arr);
-    return base64UrlEncode(arr);
-    function base64UrlEncode(bytes: Uint8Array): string {
-      let str = '';
-      for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    return b64url(arr);
+    function b64url(bytes: Uint8Array): string {
+      let s = '';
+      for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
     }
   }
 
@@ -175,8 +162,8 @@ export class Auth extends Emitter<{
     const data = new TextEncoder().encode(verifier);
     const digest = await crypto.subtle.digest('SHA-256', data);
     const bytes = new Uint8Array(digest);
-    let str = '';
-    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   }
 }

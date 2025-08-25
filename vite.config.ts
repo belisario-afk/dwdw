@@ -1,30 +1,22 @@
 import { defineConfig } from 'vite';
 import path from 'node:path';
-import tsconfigPaths from 'vite-tsconfig-paths';
+
+const r = (p: string) => path.resolve(process.cwd(), p);
 
 export default defineConfig({
   base: '/dwdw/',
-  plugins: [
-    // Reads "paths" from tsconfig.json for Vite/Rollup resolution
-    tsconfigPaths()
-  ],
   resolve: {
-    // Explicit aliases as a fallback so builds work even if tsconfig changes
-    alias: {
-      '@auth': path.resolve(process.cwd(), 'src/auth'),
-      '@spotify': path.resolve(process.cwd(), 'src/spotify'),
-      '@audio': path.resolve(process.cwd(), 'src/audio'),
-      '@visuals': path.resolve(process.cwd(), 'src/visuals'),
-      '@controllers': path.resolve(process.cwd(), 'src/controllers'),
-      '@ui': path.resolve(process.cwd(), 'src/ui'),
-      '@utils': path.resolve(process.cwd(), 'src/utils')
-    }
+    // Use regex so "@auth/pkce" maps into "src/auth/pkce"
+    alias: [
+      { find: /^@auth(\/|$)/, replacement: r('src/auth') + '$1' },
+      { find: /^@spotify(\/|$)/, replacement: r('src/spotify') + '$1' },
+      { find: /^@audio(\/|$)/, replacement: r('src/audio') + '$1' },
+      { find: /^@visuals(\/|$)/, replacement: r('src/visuals') + '$1' },
+      { find: /^@controllers(\/|$)/, replacement: r('src/controllers') + '$1' },
+      { find: /^@ui(\/|$)/, replacement: r('src/ui') + '$1' },
+      { find: /^@utils(\/|$)/, replacement: r('src/utils') + '$1' }
+    ]
   },
-  server: {
-    host: '127.0.0.1',
-    port: 5173
-  },
-  build: {
-    target: 'es2020'
-  }
+  server: { host: '127.0.0.1', port: 5173 },
+  build: { target: 'es2020' }
 });
