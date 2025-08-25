@@ -19,7 +19,6 @@ declare global {
 const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
 
 // Build a redirect URI that works on both localhost and GitHub Pages.
-// IMPORTANT: This must NOT include any ?query or #hash. Use origin + BASE_URL only.
 const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
 (async function boot() {
@@ -75,56 +74,64 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   } catch {}
 
   // Handle OAuth callback (tolerant) and attempt restore.
-  // This will not throw on normal loads and will clean ?code&state from the URL.
   await auth.handleRedirectCallback();
   await auth.restore();
 
-  // Auto-cinematic mode selection changes visuals with track
-  api.on('track-changed', async (track) => {
-    if (!track) return;
-    const img = (track as any).album?.images?.[0]?.url || null;
-    if (img) {
-      try {
-        const palette = await Palette.fromImageURL(img);
-        ui.applyPalette(palette);
-        director.setPalette(palette);
-      } catch (e) {
-        console.warn('Palette extraction failed', e);
-      }
-    }
-    director.onTrack(track);
-  });
-
-  // Start/stop flows that require an access token
+  // Authed flows
   let started = false;
   let pollTimer: any = null;
+  let lastTrackId: string | null = null;
+
+  function resetTrackState() {
+    lastTrackId = null;
+  }
+
+  async function handlePlaybackUpdate() {
+    if (!auth.getAccessToken()) return;
+    const pb = await api.getCurrentPlaybackCached().catch(() => null);
+    ui.updatePlayback(pb);
+
+    // Track-change detection and visual updates
+    if (pb && pb.item && (pb.item as any).type === 'track') {
+      const track = pb.item as SpotifyApi.TrackObjectFull;
+      if (track.id !== lastTrackId) {
+        lastTrackId = track.id;
+
+        const img = track.album?.images?.[0]?.url || null;
+        if (img) {
+          try {
+            const palette = await Palette.fromImageURL(img);
+            ui.applyPalette(palette);
+            director.setPalette(palette);
+          } catch (e) {
+            console.warn('Palette extraction failed', e);
+          }
+        }
+
+        try {
+          await director.onTrack(track);
+        } catch (e) {
+          console.debug('Director onTrack failed:', e);
+        }
+      }
+    }
+  }
 
   async function startAuthedFlows() {
     if (started) return;
     started = true;
 
-    // Let UI wire up anything that assumes a valid token/device list etc.
-    await ui.postLogin();
+    await ui.postLogin().catch(() => {});
 
-    // Initial playback fetch (guard token just in case)
-    try {
-      if (auth.getAccessToken()) {
-        const pb = await api.getCurrentPlaybackCached();
-        ui.updatePlayback(pb);
-      }
-    } catch (e) {
-      // Non-fatal
-      console.debug('Initial playback fetch failed:', e);
-    }
+    // Initial update
+    await handlePlaybackUpdate().catch(() => {});
 
-    // Update seek/labels periodically (only if token is present)
+    // Periodic updates
     pollTimer = setInterval(async () => {
-      if (!auth.getAccessToken()) return;
       try {
-        const pb = await api.getCurrentPlaybackCached();
-        ui.updatePlayback(pb);
+        await handlePlaybackUpdate();
       } catch {
-        // Swallow to avoid console spam when token expires momentarily
+        // swallow to avoid console spam
       }
     }, 1000);
   }
@@ -136,8 +143,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       clearInterval(pollTimer);
       pollTimer = null;
     }
-    // If your UI has a method to reset playback UI, call it here.
-    // ui.resetPlaybackUI?.();
+    resetTrackState();
   }
 
   // Kick off if we already have tokens, and react to login/logout
