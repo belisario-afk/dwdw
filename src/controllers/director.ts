@@ -359,7 +359,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.crossfadeT = Math.max(this.crossfadeT, this.crossfadeDur * 0.6);
   }
 
-  // Panels: make these robust without relying on external CSS
+  // Panels: robust open/close
   toggleQualityPanel() {
     this.mountPanel('quality', 'Quality', (panel) => {
       panel.innerHTML = `
@@ -2279,45 +2279,48 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Voronoi core (fixed and complete)
   private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-  // Start with one big rectangle bounding box
-  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-  const cells: SGCell[] = [];
+    // Start with one big rectangle bounding box
+    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
 
-  for (let i = 0; i < sites.length; i++) {
-    const si = sites[i];
-    let poly = B.slice();
+    for (let i = 0; i < sites.length; i++) {
+      const si = sites[i];
+      let poly = B.slice();
 
-    for (let j = 0; j < sites.length; j++) {
-      if (i === j) continue;
-      const sj = sites[j];
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const sj = sites[j];
 
-      // Perpendicular bisector half-plane between si and sj
-      const mx = (si.x + sj.x) / 2;
-      const my = (si.y + sj.y) / 2;
-      const sx = sj.x - si.x;
-      const sy = sj.y - si.y;
+        // Perpendicular bisector half-plane between si and sj
+        const mx = (si.x + sj.x) / 2;
+        const my = (si.y + sj.y) / 2;
+        const sx = sj.x - si.x;
+        const sy = sj.y - si.y;
 
-      // IMPORTANT: this was the truncated line in your file
-      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-      if (poly.length === 0) break; // fully clipped
+        // Clip current polygon against the half-plane
+        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        if (poly.length === 0) break; // fully clipped
+      }
+
+      if (poly.length >= 3) {
+        // Compute centroid and an approximate radius for effects
+        let cx = 0, cy = 0;
+        for (const p of poly) { cx += p.x; cy += p.y; }
+        cx /= poly.length; cy /= poly.length;
+
+        let radius = 0;
+        for (const p of poly) {
+          const d = Math.hypot(p.x - cx, p.y - cy);
+          if (d > radius) radius = d;
+        }
+
+        cells.push({ pts: poly, cx, cy, color: si.color, radius });
+      }
     }
 
-    if (poly.length >= 3) {
-      // Compute centroid and approximate radius for effects
-      let cx = 0, cy = 0;
-      for (const p of poly) { cx += p.x; cy += p.y; }
-      cx /= poly.length; cy /= poly.length;
-
-      let radius = 0;
-      for (const p of poly) radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy));
-
-      cells.push({ pts: poly, cx, cy, color: si.color, radius });
-    }
+    return cells;
   }
 
-  return cells;
-}
-  
   // Lyrics: fetch + timing + UI helpers
 
   private async refetchLyricsForCurrentTrack() {
@@ -2585,7 +2588,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.dataset.id = id;
       panel.style.position = 'absolute';
       panel.style.right = '12px';
-      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : id === 'flow' ? '200px' : '272px';
+      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : id === 'flow' ? '200px' : id === 'lyrics' ? '272px' : '312px';
       panel.style.minWidth = '260px';
       panel.style.maxWidth = '80vw';
       panel.style.pointerEvents = 'auto';
@@ -2628,4 +2631,81 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       g: Math.round(pa.g + (pb.g - pa.g) * t),
       b: Math.round(pa.b + (pb.b - pa.b) * t)
     };
-    return `rgb(${c.r}, ${c.g}, ${c.b
+    return `rgb(${c.r}, ${c.g}, ${c.b})`;
+  }
+}
+
+// ===== Utils (top-level, outside class) =====
+
+function clampInt(v: number, min: number, max: number) {
+  return v < min ? min : v > max ? max : v | 0;
+}
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Color utils
+
+function hexToRgb(hex: string) {
+  const m = hex.trim().replace('#', '');
+  const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
+  const n = parseInt(s, 16);
+  if (Number.isNaN(n) || (s.length !== 6)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
+  const h = (n: number) => Math.max(0, Math.min(255, n | 0)).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h: number, s: number, l: number) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s));
+  l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0;
