@@ -70,6 +70,11 @@ type LyricsState = {
   updatedAt: number;
 };
 
+// Stained Glass Voronoi types
+type SGSite = { x: number; y: number; color: { r: number; g: number; b: number } };
+type SGCell = { pts: Array<{ x: number; y: number }>; cx: number; cy: number; color: { r: number; g: number; b: number }; radius: number };
+type Sparkle = { x: number; y: number; life: number; max: number; hue: number; size: number };
+
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -153,7 +158,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   // Beat Ball scene
   private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
 
-  // Album art flow field
+  // Album art flow field + image sampler
   private albumArtUrl: string | null = null;
   private albumImg: HTMLImageElement | null = null; // original image for sprites
   private flowW = 0;
@@ -184,6 +189,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private neonGlow = 0;
   private neonStingers: Stinger[] = [];
   private neonLastLayoutW = 0;
+
+  // Stained Glass Voronoi state
+  private sgSites: SGSite[] = [];
+  private sgCells: SGCell[] = [];
+  private sgLastW = 0;
+  private sgLastH = 0;
+  private sgPulse = 0; // 0..1 neon edge pulse
+  private sgSparkles: Sparkle[] = [];
+  private sgDownbeatCounter = 0; // reseed occasionally
 
   constructor(private api: SpotifyAPI) {
     super();
@@ -230,6 +244,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       // Reset Neon Bars layout cache to recompute bar count on next draw
       this.neonLastLayoutW = 0;
+
+      // Mark SG Voronoi for rebuild
+      this.sgLastW = 0; this.sgLastH = 0;
     };
     window.addEventListener('resize', onResize);
     onResize();
@@ -253,7 +270,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.emit('palette', p);
   }
 
-  // New: set album art for Flow Field scene
+  // New: set album art for Flow Field scene and color sampling
   async setAlbumArt(url: string | null) {
     if (!url || url === this.albumArtUrl) return;
     this.albumArtUrl = url;
@@ -268,6 +285,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         this.ensureFlowParticles();
         this.ensureFlowSprites();
       }
+      // Recolor Voronoi cells on next draw
+      this.sgLastW = 0; this.sgLastH = 0;
     } catch (e) {
       // If art fails (CORS/404), clear field so scene uses procedural fallback
       this.flowVec = null;
@@ -277,6 +296,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.albumImg = null;
       this.flowOverlayCanvas = null;
       this.flowImageCanvas = null;
+      // Recolor Voronoi with palette
+      this.sgLastW = 0; this.sgLastH = 0;
     }
   }
 
@@ -582,7 +603,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.playbackMs = 0;
     this.currentLyricIndex = -1;
 
-    // Flow field: set new album art if available
+    // Flow field / album sampler: set new album art if available
     const art = track.album?.images?.[0]?.url || null;
     if (art) {
       this.setAlbumArt(art).catch(() => {});
@@ -766,6 +787,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
         this.onBeat_NeonBars();
       }
+      if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') {
+        this.onBeat_Stained();
+      }
 
       // Downbeat every N beats
       if (this.beatCount % this.downbeatEvery === 1) {
@@ -795,10 +819,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
       this.onDownbeat_NeonBars();
     }
+    if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') {
+      this.onDownbeat_Stained();
+    }
 
     // Auto scene switching only when current mode is Auto
     if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
-      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars'];
+      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars', 'Stained Glass Voronoi'];
       const pick = choices[(Math.random() * choices.length) | 0];
       this.requestScene(pick);
     }
@@ -819,6 +846,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         break;
       case 'Neon Bars':
         this.drawNeonBars(ctx, w, h, time, dt);
+        break;
+      case 'Stained Glass Voronoi':
+        this.drawStainedGlassVoronoi(ctx, w, h, time, dt);
         break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
@@ -1676,9 +1706,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       b.peak = Math.max(b.peak - dt * (0.25 + (1 - dance) * 0.6), b.v);
     }
 
-    // Draw stingers (downbeat sweeps)
-    this.drawNeonStingers(ctx, w, h, time);
-
     // Bars geometry
     const gap = Math.max(1, Math.floor(w / n * 0.18));
     const bw = Math.max(2, Math.floor((w - gap * (n + 1)) / Math.max(1, n)));
@@ -1688,6 +1715,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Neon glow intensity decays
     this.neonGlow = Math.max(0, this.neonGlow - dt * 2.5);
     const glowPulse = 0.25 + this.neonGlow * 0.9;
+
+    // Draw stingers (downbeat sweeps)
+    this.drawNeonStingers(ctx, w, h, time);
 
     ctx.save();
     ctx.lineCap = 'round';
@@ -1775,210 +1805,209 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Lyrics: fetch + timing + UI helpers
+  // Stained Glass Voronoi scene
 
-  private async refetchLyricsForCurrentTrack() {
-    if (!this.lastTrackId) return;
-    try {
-      const pb = await this.api.getCurrentPlaybackCached().catch(() => null);
-      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
-      if (tr) return this.fetchLyricsLRCLIB(tr);
-    } catch {}
+  private ensureStained(w: number, h: number) {
+    if (this.sgCells.length && this.sgLastW === w && this.sgLastH === h) return;
+    // Build sites
+    const N = this.reduceMotion ? 36 : 72;
+    const margin = Math.min(w, h) * 0.06;
+    this.sgSites = [];
+    for (let i = 0; i < N; i++) {
+      const x = margin + Math.random() * (w - margin * 2);
+      const y = margin + Math.random() * (h - margin * 2);
+      const c = this.sampleImageColor(x, y, w, h);
+      this.sgSites.push({ x, y, color: c });
+    }
+    this.sgCells = this.computeVoronoi(this.sgSites, w, h);
+    this.sgLastW = w; this.sgLastH = h;
   }
 
-  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
-    try {
-      const trackName = track.name || '';
-      const artistName = (track.artists || []).map(a => a.name).join(', ');
-      const albumName = track.album?.name || '';
-      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
+  private reseedStained(w: number, h: number) {
+    this.sgLastW = 0; this.sgLastH = 0;
+    this.ensureStained(w, h);
+  }
 
-      const params = new URLSearchParams();
-      if (trackName) params.set('track_name', trackName);
-      if (artistName) params.set('artist_name', artistName);
-      if (albumName) params.set('album_name', albumName);
-      if (durationSec) params.set('duration', String(durationSec));
+  private onBeat_Stained() {
+    // Edge pulse on every beat
+    this.sgPulse = Math.min(1, this.sgPulse + 0.5);
+  }
 
-      const url = `https://lrclib.net/api/search?${params.toString()}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
-      const data = await res.json();
-
-      let synced = '';
-      let plain = '';
-      if (Array.isArray(data) && data.length) {
-        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
-        synced = best?.syncedLyrics || '';
-        plain = best?.plainLyrics || '';
-      }
-
-      let state: LyricsState | null = null;
-      if (synced && typeof synced === 'string') {
-        const lines = parseLRC(synced);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
-      } else if (plain && typeof plain === 'string') {
-        const lines = parsePlainLyrics(plain, durationSec);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
-      }
-
-      this.lyrics = state;
-      this.currentLyricIndex = -1; // force refresh
-    } catch {
-      // Fail silently; keep fallback text
-      this.lyrics = null;
-      this.currentLyricIndex = -1;
+  private onDownbeat_Stained() {
+    // Extra pulse
+    this.sgPulse = 1;
+    // Sparkles along random edges
+    this.spawnSparks(14 + Math.round((this.features.energy ?? 0.5) * 18));
+    // Reseed every couple of downbeats for variety
+    this.sgDownbeatCounter++;
+    if (this.sgDownbeatCounter % 2 === 0) {
+      this.reseedStained(this.bufferA.width, this.bufferA.height);
     }
   }
 
-  private updateCurrentLyricLine() {
-    if (!this.lyrics || !this.lyrics.lines.length) return;
-    const t = this.playbackMs / 1000;
-    const lines = this.lyrics.lines;
+  private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    this.ensureStained(w, h);
 
-    // Binary search current line
-    let lo = 0, hi = lines.length - 1, idx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) {
-        hi = mid - 1;
-      } else if (t >= lines[mid].end) {
-        lo = mid + 1;
-      } else {
-        idx = mid; break;
-      }
+    // Background: vignetted dark base
+    const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
+    bg.addColorStop(0, '#07080b');
+    bg.addColorStop(1, '#0a0a10');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Decay pulse and sparkles
+    this.sgPulse = Math.max(0, this.sgPulse - dt * 2.0);
+
+    const keyHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const keyAmount = this.keyColorEnabled ? 0.25 : 0.0;
+    const valence = this.features.valence ?? 0.5;
+    const energy = this.features.energy ?? 0.5;
+
+    // Draw cells
+    ctx.save();
+    for (const cell of this.sgCells) {
+      if (cell.pts.length < 3) continue;
+
+      // Tint towards key hue for cohesion
+      let baseRGB = tintRgbTowardHue(cell.color, keyHue, keyAmount);
+
+      // Build path
+      ctx.beginPath();
+      ctx.moveTo(cell.pts[0].x, cell.pts[0].y);
+      for (let i = 1; i < cell.pts.length; i++) ctx.lineTo(cell.pts[i].x, cell.pts[i].y);
+      ctx.closePath();
+
+      // Fill: beveled gradient based on centroid and a pseudo-light direction
+      const lightDir = { x: Math.cos(time * 0.2) * 0.6 + 0.4, y: Math.sin(time * 0.18) * 0.6 + 0.4 };
+      const g = ctx.createRadialGradient(
+        cell.cx + (lightDir.x - 0.5) * cell.radius * 0.8,
+        cell.cy + (lightDir.y - 0.5) * cell.radius * 0.8,
+        1,
+        cell.cx, cell.cy, Math.max(8, cell.radius)
+      );
+      const hsl = rgbToHsl(baseRGB);
+      const l1 = Math.min(0.9, hsl.l + 0.25 + valence * 0.1);
+      const l2 = Math.max(0.1, hsl.l - 0.15 + (1 - valence) * 0.05);
+      const cTop = hslToRgb(hsl.h, Math.min(1, hsl.s + 0.1), l1);
+      const cBot = hslToRgb(hsl.h, hsl.s, l2);
+      g.addColorStop(0, `rgba(${cTop.r},${cTop.g},${cTop.b},0.95)`);
+      g.addColorStop(1, `rgba(${cBot.r},${cBot.g},${cBot.b},0.95)`);
+
+      ctx.fillStyle = g;
+      ctx.shadowColor = `rgba(${cTop.r},${cTop.g},${cTop.b},${0.25 + this.sgPulse * 0.4})`;
+      ctx.shadowBlur = 10 + (18 + energy * 24) * (0.2 + this.sgPulse * 0.8);
+      ctx.fill();
+
+      // Edge bevel stroke
+      ctx.shadowBlur = 0;
+      const edgeHue = (keyHue + 20) % 360;
+      ctx.lineWidth = Math.max(1.2, Math.min(4, Math.sqrt(cell.radius) * 0.6));
+      ctx.strokeStyle = `hsla(${edgeHue}, 90%, ${70 + valence * 10}%, ${0.35 + this.sgPulse * 0.35})`;
+      ctx.stroke();
+
+      // Inner highlight stroke (adds glass glint)
+      ctx.globalAlpha = 0.18 + this.sgPulse * 0.12;
+      ctx.lineWidth = Math.max(0.8, ctx.lineWidth * 0.6);
+      ctx.strokeStyle = `rgba(255,255,255,0.6)`;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
+    ctx.restore();
 
-    if (idx !== -1 && idx !== this.currentLyricIndex) {
-      this.currentLyricIndex = idx;
-      const text = lines[idx].text || '';
-      if (text.trim()) this.setLyricText(text);
+    // Sparkles
+    this.drawSparks(ctx, w, h, dt);
+  }
+
+  private spawnSparks(count: number) {
+    if (!this.sgCells.length) return;
+    const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    for (let i = 0; i < count; i++) {
+      const cell = this.sgCells[(Math.random() * this.sgCells.length) | 0];
+      if (cell.pts.length < 2) continue;
+      const a = cell.pts[(Math.random() * cell.pts.length) | 0];
+      const b = cell.pts[(Math.random() * cell.pts.length) | 0];
+      const t = Math.random();
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      this.sgSparkles.push({
+        x, y,
+        life: 0,
+        max: 0.5 + Math.random() * 0.7,
+        hue: (hue + (Math.random() - 0.5) * 40) % 360,
+        size: 1.5 + Math.random() * 2.5
+      });
     }
   }
 
-  private startPlaybackPolling() {
-    // Poll playback every 1000ms to sync lyrics timing
-    const tick = async () => {
-      try {
-        const pb = await this.api.getCurrentPlaybackCached();
-        if (pb) {
-          this.playbackIsPlaying = !!pb.is_playing;
-          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
-          if (tr && tr.id && tr.id !== this.lastTrackId) {
-            this.onTrack(tr).catch(() => {});
-          }
-          const drift = Math.abs(ms - this.playbackMs);
-          if (drift > 750) this.playbackMs = ms; // resync if >0.75s drift
+  private drawSparks(ctx: CanvasRenderingContext2D, w: number, h: number, dt: number) {
+    if (!this.sgSparkles.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = this.sgSparkles.length - 1; i >= 0; i--) {
+      const s = this.sgSparkles[i];
+      s.life += dt;
+      if (s.life >= s.max) { this.sgSparkles.splice(i, 1); continue; }
+      const t = s.life / s.max;
+      const a = 1 - t;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = `hsla(${s.hue}, 100%, 70%, ${a})`;
+      ctx.fillStyle = `hsla(${s.hue}, 100%, 70%, ${a})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size * (1 + 0.8 * (1 - t)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.shadowBlur = 0;
+  }
+
+  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+    // Sutherland–Hodgman half-plane clipping for each site
+    const bbox = [
+      { x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }
+    ];
+    const out: SGCell[] = [];
+
+    for (let i = 0; i < sites.length; i++) {
+      const A = sites[i];
+      let poly = bbox.slice();
+
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const B = sites[j];
+        // Half-plane: points closer to A than B
+        const sx = B.x - A.x;
+        const sy = B.y - A.y;
+        const mx = (A.x + B.x) * 0.5;
+        const my = (A.y + B.y) * 0.5;
+
+        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        if (poly.length === 0) break;
+      }
+
+      if (poly.length >= 3) {
+        // Centroid and "radius" for gradients
+        let area = 0, cx = 0, cy = 0;
+        for (let k = 0; k < poly.length; k++) {
+          const p0 = poly[k];
+          const p1 = poly[(k + 1) % poly.length];
+          const a = p0.x * p1.y - p1.x * p0.y;
+          area += a;
+          cx += (p0.x + p1.x) * a;
+          cy += (p0.y + p1.y) * a;
         }
-      } catch {
-        // Ignore polling errors
+        area *= 0.5;
+        if (Math.abs(area) < 1e-5) continue;
+        cx /= 6 * area;
+        cy /= 6 * area;
+
+        // Approx radius as max distance to vertices
+        let r = 0;
+        for (const p of poly) r = Math.max(r, Math.hypot(p.x - cx, p.y - cy));
+        out.push({ pts: poly, cx, cy, color: A.color, radius: r });
       }
-    };
-    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
-    this.pbPollTimer = setInterval(tick, 1000);
-    tick().catch(() => {});
-  }
+    }
 
-  // Lyrics overlay renderer
-
-  private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
-    if (!this.lyricsOverlayEnabled) return;
-    if (!this.lyrics || !this.lyrics.lines.length || this.currentLyricIndex < 0) return;
-
-    const line = this.lyrics.lines[this.currentLyricIndex];
-    const text = (line?.text || '').trim();
-    if (!text) return;
-
-    const t = this.playbackMs / 1000;
-    const dur = Math.max(0.1, (line.end - line.start) || 0.1);
-    const progress = Math.max(0, Math.min(1, (t - line.start) / dur));
-
-    // Style
-    const minDim = Math.min(W, H);
-    const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
-    const margin = Math.round(minDim * 0.05);
-    const padX = Math.round(fontPx * 0.6);
-    const padY = Math.round(fontPx * 0.45);
-
-    ctx.save();
-
-    // Measure text
-    const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-    ctx.font = fontFace;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    const metrics = ctx.measureText(text);
-    const textW = metrics.width;
-    const boxW = Math.min(W - margin * 2, Math.ceil(textW + padX * 2));
-    const boxH = Math.ceil(fontPx + padY * 2);
-
-    const cx = W / 2;
-    const by = H - margin; // bottom baseline position
-    const bx = cx - boxW / 2;
-    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
-
-    // Background panel (for readability)
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#000';
-    roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Base (unfilled) text
-    ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.shadowColor = 'transparent';
-    ctx.strokeText(text, cx, by);
-    ctx.fillText(text, cx, by);
-
-    // Progress highlight
-    const baseHue =
-      this.keyHueTarget != null && this.keyColorEnabled
-        ? this.keyHueTarget
-        : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-    const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
-    const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
-    const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
-    grad.addColorStop(0, hi);
-    grad.addColorStop(1, hi2);
-
-    // Clip to progress width relative to text
-    const progW = textW * progress;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(cx - textW / 2, by - fontPx, Math.max(0, progW), fontPx * 1.2);
-    ctx.clip();
-
-    ctx.fillStyle = grad;
-    ctx.shadowColor = hi;
-    ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
-    ctx.fillText(text, cx, by);
-    ctx.restore();
-
-    // Underline progress bar
-    const barY = by + Math.round(fontPx * 0.18);
-    const barR = Math.round(Math.min(10, fontPx * 0.18));
-    const barPad = Math.round(padX * 0.4);
-    const barW = boxW - barPad * 2;
-    const filled = Math.round(barW * progress);
-
-    // Track
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#fff';
-    roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Fill
-    const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
-    barGrad.addColorStop(0, hi);
-    barGrad.addColorStop(1, hi2);
-    ctx.fillStyle = barGrad;
-    roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
-    ctx.fill();
-
-    ctx.restore();
+    return out;
   }
 
   // Panels infra
@@ -2157,99 +2186,47 @@ function angularDelta(current: number, target: number) {
   return d;
 }
 
-// Lyrics parsing helpers
+// Polygon clip against half-plane: keep points P s.t. dot(P - M, S) <= 0
+function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
+  if (poly.length === 0) return poly;
+  const out: Array<{ x: number; y: number }> = [];
+  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
 
-function parseTimeTag(min: string, sec: string, frac?: string) {
-  const m = parseInt(min, 10) || 0;
-  const s = parseInt(sec, 10) || 0;
-  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
-  return m * 60 + s + f / 1000;
-}
+  for (let i = 0; i < poly.length; i++) {
+    const A = poly[i];
+    const B = poly[(i + 1) % poly.length];
+    const fa = f(A.x, A.y);
+    const fb = f(B.x, B.y);
+    const ain = fa <= 0;
+    const bin = fb <= 0;
 
-// Parse standard LRC with optional per-word tags like <mm:ss.xx>
-function parseLRC(lrc: string): LyricLine[] {
-  const lines: { ts: number; text: string }[] = [];
-  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
-
-  const rawLines = lrc.split(/\r?\n/);
-  for (const raw of rawLines) {
-    if (!raw.trim()) continue;
-    // Extract all leading time tags
-    let match: RegExpExecArray | null;
-    timeTag.lastIndex = 0;
-    const stamps: number[] = [];
-    let textStartIdx = 0;
-    while ((match = timeTag.exec(raw))) {
-      stamps.push(parseTimeTag(match[1], match[2], match[3]));
-      textStartIdx = timeTag.lastIndex;
-    }
-    const text = raw.slice(textStartIdx).trim();
-    if (!stamps.length || !text) continue;
-    for (const ts of stamps) {
-      lines.push({ ts, text });
+    if (ain && bin) {
+      // in -> in
+      out.push({ x: B.x, y: B.y });
+    } else if (ain && !bin) {
+      // in -> out : add intersection
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+    } else if (!ain && bin) {
+      // out -> in : add intersection + B
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+      out.push({ x: B.x, y: B.y });
+    } else {
+      // out -> out : nothing
     }
   }
-  // Sort by timestamp
-  lines.sort((a, b) => a.ts - b.ts);
-
-  // Build line objects and estimate end time as next start
-  const out: LyricLine[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const start = lines[i].ts;
-    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
-    out.push({ start, end, text: lines[i].text });
-  }
-
-  // Optional: per-word timing if inline tags exist
-  if (lrc.indexOf('<') !== -1) {
-    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
-    for (const ln of out) {
-      const src = ln.text;
-      wordTag.lastIndex = 0;
-      const words: LyricWord[] = [];
-      let lastIdx = 0;
-      let m: RegExpExecArray | null;
-      const starts: number[] = [];
-      let collectedText = '';
-      while ((m = wordTag.exec(src))) {
-        const before = src.slice(lastIdx, m.index);
-        if (before.trim()) {
-          collectedText += before;
-        }
-        const start = parseTimeTag(m[1], m[2], m[3]);
-        starts.push(start);
-        lastIdx = m.index + m[0].length;
-      }
-      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
-      if (starts.length && collectedText.trim()) {
-        const tokens = collectedText.trim().split(/\s+/);
-        const N = Math.min(tokens.length, starts.length);
-        for (let i = 0; i < N; i++) {
-          const st = starts[i];
-          const en = i + 1 < N ? starts[i + 1] : ln.end;
-          words.push({ start: st, end: en, text: tokens[i] });
-        }
-        ln.words = words;
-        ln.text = tokens.join(' ');
-      }
-    }
-  }
-
   return out;
 }
 
-// Fallback: evenly distribute plain lyrics lines across track duration
-function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
-  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!rows.length || durationSec <= 0) return [];
-  const base = 1.0; // start at 1s in
-  const total = Math.max(5, durationSec - 1);
-  const step = Math.max(1, total / rows.length);
-  const out: LyricLine[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const start = base + i * step;
-    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
-    out.push({ start, end, text: rows[i] });
-  }
-  return out;
+// Tint an RGB color toward a target hue by amount 0..1
+function tintRgbTowardHue(c: { r: number; g: number; b: number }, hue: number, amt: number) {
+  if (amt <= 0) return c;
+  const hsl = rgbToHsl(c);
+  const tgt = hslToRgb(hue, Math.max(0.45, hsl.s), hsl.l);
+  return {
+    r: Math.round(lerp(c.r, tgt.r, amt)),
+    g: Math.round(lerp(c.g, tgt.g, amt)),
+    b: Math.round(lerp(c.b, tgt.b, amt))
+  };
 }
