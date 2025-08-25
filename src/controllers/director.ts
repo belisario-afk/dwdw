@@ -55,6 +55,10 @@ type FlowSettings = {
   spriteBeatBurst: boolean;   // respawn sprites on beats
 };
 
+// Neon Bars
+type NeonBar = { v: number; target: number; peak: number; };
+type Stinger = { start: number; dur: number; dir: 1 | -1; hue: number };
+
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -149,6 +153,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     spriteBeatBurst: true
   };
 
+  // Neon Bars state
+  private neonBars: NeonBar[] = [];
+  private neonGlow = 0;
+  private neonStingers: Stinger[] = [];
+  private neonLastLayoutW = 0;
+
   constructor(private api: SpotifyAPI) {
     super();
 
@@ -187,10 +197,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
 
-      // Adjust defaults by motion
+      // Adjust defaults by motion for Flow Field
       this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
       this.ensureFlowParticles();
       this.ensureFlowSprites();
+
+      // Reset Neon Bars layout cache to recompute bar count on next draw
+      this.neonLastLayoutW = 0;
     };
     window.addEventListener('resize', onResize);
     onResize();
@@ -301,10 +314,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
           <span>Beat confetti</span>
         </label>
-
-        <div style="margin-top:10px;">
-          <button id="open-flow-panel">Configure Flow Field…</button>
-        </div>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
@@ -336,11 +345,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         .addEventListener('change', (e) => {
           this.beatConfettiEnabled = (e.target as HTMLInputElement).checked;
           this.togglePanel('access', false);
-        });
-      panel.querySelector<HTMLButtonElement>('#open-flow-panel')!
-        .addEventListener('click', () => {
-          this.togglePanel('access', false);
-          this.toggleFlowFieldPanel(true);
         });
     });
     this.togglePanel('access', undefined);
@@ -624,6 +628,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
         this.onBeat_FlowField();
       }
+      if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
+        this.onBeat_NeonBars();
+      }
 
       // Downbeat every N beats
       if (this.beatCount % this.downbeatEvery === 1) {
@@ -649,9 +656,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.spawnConfetti(count, 1.0);
     }
 
+    // Scene-specific downbeat
+    if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') {
+      this.onDownbeat_NeonBars();
+    }
+
     // Auto scene switching only when current mode is Auto
     if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
-      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field'];
+      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars'];
       const pick = choices[(Math.random() * choices.length) | 0];
       this.requestScene(pick);
     }
@@ -669,6 +681,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         break;
       case 'Flow Field':
         this.drawFlowField(ctx, w, h, time, dt);
+        break;
+      case 'Neon Bars':
+        this.drawNeonBars(ctx, w, h, time, dt);
         break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
@@ -1427,6 +1442,205 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     return rgbToHsl(hexToRgb(col)!).h;
   }
 
+  // Neon Bars
+
+  private ensureNeonBars(w: number) {
+    // Recompute bar count when width changes significantly
+    if (this.neonBars.length && Math.abs(this.neonLastLayoutW - w) < 16) return;
+    this.neonLastLayoutW = w;
+
+    const targetBars = this.reduceMotion ? 24 : 48;
+    const current = this.neonBars.length;
+    if (current < targetBars) {
+      for (let i = current; i < targetBars; i++) this.neonBars.push({ v: 0.1, target: 0.1, peak: 0.12 });
+    } else if (current > targetBars) {
+      this.neonBars.length = targetBars;
+    }
+  }
+
+  private onBeat_NeonBars() {
+    // Boost neon glow on each beat
+    this.neonGlow = Math.min(1, this.neonGlow + 0.6);
+    // Add a little hit to low/mid bars to emulate kick/snare
+    const n = this.neonBars.length;
+    if (!n) return;
+    for (let i = 0; i < n; i++) {
+      const band = i / n;
+      let boost = 0;
+      if (band < 0.2) boost = 0.25 + (this.features.energy ?? 0.5) * 0.2; // kick-ish
+      else if (band > 0.35 && band < 0.7) boost = 0.12; // snare-ish
+      if (boost) this.neonBars[i].target = Math.min(1, this.neonBars[i].target + boost);
+    }
+  }
+
+  private onDownbeat_NeonBars() {
+    // Launch two sweeping stingers across the bars (left->right and right->left)
+    const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const now = performance.now() / 1000;
+    const dur = 0.6;
+    this.neonStingers.push({ start: now, dur, dir: 1, hue });
+    this.neonStingers.push({ start: now + 0.05, dur, dir: -1, hue: (hue + 180) % 360 });
+  }
+
+  private drawNeonBars(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    this.ensureNeonBars(w);
+
+    // Background: subtle dark gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#07070a');
+    bg.addColorStop(1, '#0e0e14');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Bottom base line
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#ffffff18';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, h * 0.88);
+    ctx.lineTo(w, h * 0.88);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    const energy = this.features.energy ?? 0.5;
+    const dance = this.features.danceability ?? 0.5;
+
+    // Update bar values (pseudo-EQ)
+    const n = this.neonBars.length;
+    const attack = 0.18 + dance * 0.25;
+    const decay = 0.08 + (1 - dance) * 0.06;
+    const baseFloor = 0.08 + energy * 0.12;
+    const maxAmp = 0.75 + energy * 0.25;
+
+    for (let i = 0; i < n; i++) {
+      const band = i / Math.max(1, n - 1);
+      // Frequency-skewed motion: lows slower, highs quicker
+      const f1 = 0.8 + band * 1.6;
+      const f2 = 1.6 + band * 2.2;
+      const noise =
+        (Math.sin(time * f1 * 1.7 + i * 0.9) * 0.5 + 0.5) * 0.6 +
+        (Math.sin(time * f2 * 2.1 + i * 1.7) * 0.5 + 0.5) * 0.4;
+
+      let target = baseFloor + noise * maxAmp;
+
+      // Emphasize beat for some bands
+      if (this.beatActive) {
+        if (band < 0.2) target += 0.25 + energy * 0.15; // kick area
+        else if (band > 0.35 && band < 0.7) target += 0.1; // snare area
+      }
+
+      // Clamp
+      target = Math.max(0.02, Math.min(1, target));
+      const b = this.neonBars[i];
+      b.target = target;
+
+      // Smoothing with different rise/fall
+      if (target > b.v) b.v = lerp(b.v, target, attack);
+      else b.v = lerp(b.v, target, decay);
+
+      // Peak hold with gravity
+      b.peak = Math.max(b.peak - dt * (0.25 + (1 - dance) * 0.6), b.v);
+    }
+
+    // Draw stingers (downbeat sweeps)
+    this.drawNeonStingers(ctx, w, h, time);
+
+    // Bars geometry
+    const gap = Math.max(1, Math.floor(w / n * 0.18));
+    const bw = Math.max(2, Math.floor((w - gap * (n + 1)) / Math.max(1, n)));
+    const baseY = h * 0.88;
+    const maxH = h * 0.72;
+
+    // Neon glow intensity decays
+    this.neonGlow = Math.max(0, this.neonGlow - dt * 2.5);
+    const glowPulse = 0.25 + this.neonGlow * 0.9;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let i = 0; i < n; i++) {
+      const b = this.neonBars[i];
+      const x = gap + i * (bw + gap);
+      const bh = b.v * maxH;
+      const y = baseY - bh;
+
+      // Bar color gradient
+      const pal = this.palette.colors;
+      const col = pal[i % pal.length] || this.palette.dominant;
+      const c = hexToRgb(col)!;
+      const hue = this.keyHueTarget ?? rgbToHsl(c).h;
+
+      // Vertical neon gradient
+      const g = ctx.createLinearGradient(0, y, 0, baseY);
+      const topCol = `hsla(${hue}, 92%, ${70 + (this.features.valence ?? 0.5) * 10}%, 1)`;
+      const midCol = `hsla(${(hue + 12) % 360}, 88%, 55%, 0.95)`;
+      const botCol = `hsla(${(hue + 24) % 360}, 86%, 40%, 0.9)`;
+      g.addColorStop(0, topCol);
+      g.addColorStop(0.6, midCol);
+      g.addColorStop(1, botCol);
+
+      // Glow
+      ctx.shadowBlur = 18 + glowPulse * 22;
+      ctx.shadowColor = `hsla(${hue}, 100%, 60%, ${0.45 + glowPulse * 0.3})`;
+      ctx.fillStyle = g;
+
+      // Rounded bar
+      const r = Math.min(8, bw * 0.4);
+      roundRect(ctx, x, y, bw, Math.max(2, bh), r);
+      ctx.fill();
+
+      // Peak cap
+      const py = baseY - Math.max(2, b.peak * maxH);
+      ctx.shadowBlur = 12 + glowPulse * 14;
+      ctx.shadowColor = `hsla(${(hue + 30) % 360}, 100%, 65%, 0.6)`;
+      ctx.fillStyle = `hsla(${(hue + 20) % 360}, 100%, 85%, ${0.9})`;
+      roundRect(ctx, x, Math.min(py, y - 2), bw, 3, 2);
+      ctx.fill();
+
+      // Optional inner glow line for extra neon
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.25 + glowPulse * 0.2;
+      ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 80%, 0.9)`;
+      ctx.lineWidth = Math.max(1, bw * 0.15);
+      ctx.beginPath();
+      ctx.moveTo(x + bw / 2, baseY - 2);
+      ctx.lineTo(x + bw / 2, y + 4);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+
+    // Subtle scanlines overlay for retro vibe
+    ctx.globalAlpha = 0.07;
+    ctx.fillStyle = '#ffffff';
+    for (let yy = 0; yy < h; yy += 4) {
+      ctx.fillRect(0, yy, w, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private drawNeonStingers(ctx: CanvasRenderingContext2D, w: number, h: number, time: number) {
+    if (!this.neonStingers.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const now = performance.now() / 1000;
+    for (let i = this.neonStingers.length - 1; i >= 0; i--) {
+      const s = this.neonStingers[i];
+      const t = (now - s.start) / s.dur;
+      if (t >= 1) { this.neonStingers.splice(i, 1); continue; }
+      const pos = (s.dir === 1 ? t : 1 - t) * w;
+      const wpx = Math.max(10, Math.min(40, w * 0.04));
+      const grad = ctx.createLinearGradient(pos - wpx, 0, pos + wpx, 0);
+      grad.addColorStop(0, `hsla(${s.hue}, 100%, 50%, 0)`);
+      grad.addColorStop(0.5, `hsla(${s.hue}, 100%, 70%, ${0.35 * (1 - t)})`);
+      grad.addColorStop(1, `hsla(${s.hue}, 100%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(pos - wpx, 0, wpx * 2, h);
+    }
+    ctx.restore();
+  }
+
   // Panels infra
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
@@ -1492,6 +1706,20 @@ function clampInt(v: number, min: number, max: number) {
 }
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
+}
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

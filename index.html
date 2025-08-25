@@ -25,14 +25,12 @@
         overflow: hidden;
       }
 
-      /* Canvas host fills the screen */
       #canvas-host {
         position: fixed;
         inset: 0;
         overflow: hidden;
       }
 
-      /* Top control bar */
       .toolbar {
         position: fixed;
         inset: 12px 12px auto 12px;
@@ -56,15 +54,9 @@
         gap: 8px;
         min-width: 0;
       }
-      .left {
-        justify-content: flex-start;
-      }
-      .center {
-        justify-content: center;
-      }
-      .right {
-        justify-content: flex-end;
-      }
+      .left { justify-content: flex-start; }
+      .center { justify-content: center; }
+      .right { justify-content: flex-end; }
 
       button,
       select,
@@ -75,36 +67,20 @@
         border-radius: 8px;
         padding: 6px 10px;
       }
-      button {
-        cursor: pointer;
-      }
+      button { cursor: pointer; }
       button:disabled,
       select:disabled,
       input:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
-      .hidden {
-        display: none !important;
-      }
-      .label {
-        color: var(--muted);
-        white-space: nowrap;
-      }
-      .spacer {
-        width: 8px;
-      }
-      .grow {
-        flex: 1 1 auto;
-      }
-      #seek {
-        width: min(38vw, 520px);
-      }
-      #volume {
-        width: 110px;
-      }
+      .hidden { display: none !important; }
+      .label { color: var(--muted); white-space: nowrap; }
+      .spacer { width: 8px; }
+      .grow { flex: 1 1 auto; }
+      #seek { width: min(38vw, 520px); }
+      #volume { width: 110px; }
 
-      /* Panels root (director mounts small popups here) */
       #panels {
         position: fixed;
         right: 0;
@@ -121,11 +97,8 @@
         padding: 10px;
         color: var(--fg);
       }
-      #panels .panel.hidden {
-        display: none;
-      }
+      #panels .panel.hidden { display: none; }
 
-      /* Screensaver overlay (UI toggles .active) */
       #screensaver {
         position: fixed;
         inset: 0;
@@ -135,16 +108,12 @@
         transition: opacity 300ms ease;
         z-index: 150;
       }
-      #screensaver.active {
-        opacity: 1;
-      }
+      #screensaver.active { opacity: 1; }
     </style>
   </head>
   <body>
-    <!-- Where VisualDirector will mount the canvas -->
     <div id="canvas-host" aria-hidden="true"></div>
 
-    <!-- Controls -->
     <div class="toolbar" role="region" aria-label="Player controls">
       <div class="left">
         <button id="btn-login" title="Login with Spotify">Login</button>
@@ -161,27 +130,11 @@
         <button id="btn-pause" class="hidden" title="Pause">⏸</button>
         <button id="btn-next" title="Next">⏭</button>
 
-        <input
-          id="seek"
-          type="range"
-          min="0"
-          max="1000"
-          step="1"
-          value="0"
-          aria-label="Seek"
-        />
+        <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" />
         <span id="time-label" class="label">0:00 / 0:00</span>
 
         <label class="label" for="volume">Vol</label>
-        <input
-          id="volume"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value="80"
-          aria-label="Volume"
-        />
+        <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" />
       </div>
 
       <div class="right">
@@ -195,6 +148,7 @@
           <option value="Lyric Lines">Lyric Lines</option>
           <option value="Beat Ball">Beat Ball</option>
           <option value="Flow Field">Flow Field</option>
+          <option value="Neon Bars">Neon Bars</option>
         </select>
 
         <button id="btn-crossfade" title="Crossfade visuals">Crossfade</button>
@@ -209,15 +163,10 @@
       </div>
     </div>
 
-    <!-- Pop-up panels mount point -->
     <div id="panels" aria-live="polite" aria-relevant="additions removals"></div>
-
-    <!-- Screen dimmer for idle state -->
     <div id="screensaver" aria-hidden="true"></div>
 
-    <!-- Spotify Web Playback SDK -->
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
-    <!-- App entry (Vite/ESM) -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
