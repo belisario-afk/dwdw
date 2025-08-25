@@ -14,7 +14,6 @@ export function createProgram(gl: WebGLRenderingContext | WebGL2RenderingContext
     gl.deleteShader(fs);
     throw new Error(`GL link error: ${log}`);
   }
-  // Cleanup shaders after successful link
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   return prog;
@@ -47,24 +46,10 @@ export function mat4Perspective(fovyRad: number, aspect: number, near: number, f
   const nf = 1 / (near - far);
   const out = new Float32Array(16);
   out[0] = f / aspect;
-  out[1] = 0;
-  out[2] = 0;
-  out[3] = 0;
-
-  out[4] = 0;
   out[5] = f;
-  out[6] = 0;
-  out[7] = 0;
-
-  out[8] = 0;
-  out[9] = 0;
   out[10] = (far + near) * nf;
   out[11] = -1;
-
-  out[12] = 0;
-  out[13] = 0;
   out[14] = (2 * far * near) * nf;
-  out[15] = 0;
   return out;
 }
 
@@ -91,10 +76,10 @@ export function mat4LookAt(eye: [number, number, number], center: [number, numbe
   uz = sx * fy - sy * fx;
 
   const out = new Float32Array(16);
-  out[0] = sx; out[4] = sy; out[8] = sz;  out[12] = 0;
-  out[1] = ux; out[5] = uy; out[9] = uz;  out[13] = 0;
-  out[2] = -fx;out[6] = -fy;out[10] = -fz;out[14] = 0;
-  out[3] = 0;  out[7] = 0;  out[11] = 0;  out[15] = 1;
+  out[0] = sx; out[4] = sy; out[8] = sz;
+  out[1] = ux; out[5] = uy; out[9] = uz;
+  out[2] = -fx; out[6] = -fy; out[10] = -fz;
+  out[3] = 0;  out[7] = 0;   out[11] = 0; out[15] = 1;
 
   // Translate by -eye
   out[12] = -(sx * ex + sy * ey + sz * ez);
