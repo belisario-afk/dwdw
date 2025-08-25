@@ -33,7 +33,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
 
   getAccessToken(): string | null {
     if (!this.tokens) return null;
-    if (Date.now() > this.tokens.expiresAt - 60000) return null;
+    if (Date.now() > this.tokens.expiresAt - 60_000) return null;
     return this.tokens.accessToken;
   }
 
@@ -47,7 +47,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       if (!raw) return false;
       const parsed = JSON.parse(raw) as TokenSet;
       this.tokens = parsed;
-      if (Date.now() > parsed.expiresAt - 60000) {
+      if (Date.now() > parsed.expiresAt - 60_000) {
         if (parsed.refreshToken) {
           await this.refresh().catch(() => {});
           return !!this.getAccessToken();
@@ -87,15 +87,35 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     this.emit('tokens', null);
   }
 
+  // Tolerant handler: only throws on the actual callback route with bad/missing params.
   async handleRedirectCallback(): Promise<void> {
     const url = new URL(location.href);
-    const params = url.searchParams.size ? url.searchParams : new URLSearchParams(url.hash.slice(2));
+    const hash = url.hash || '';
+    const isCallbackRoute = url.pathname.endsWith('/callback') || hash.startsWith('#/callback');
+
+    // Choose params from either ?search or the part after "#/callback?"
+    let params: URLSearchParams;
+    if (url.search.length > 1) {
+      params = url.searchParams;
+    } else if (hash.startsWith('#/')) {
+      const qi = hash.indexOf('?');
+      params = qi !== -1 ? new URLSearchParams(hash.slice(qi + 1)) : new URLSearchParams();
+    } else {
+      params = new URLSearchParams();
+    }
+
     const code = params.get('code');
     const state = params.get('state');
     const storedState = sessionStorage.getItem(this.stateKey);
     const verifier = sessionStorage.getItem(this.verifierKey);
 
-    if (!code || !state || !verifier || state !== storedState) throw new Error('Invalid OAuth callback.');
+    // If this isn't a callback URL, just ignore silently.
+    if (!isCallbackRoute && !(code && state)) return;
+
+    // On callback route, validate strictly.
+    if (!code || !state || !verifier || state !== storedState) {
+      throw new Error('Invalid OAuth callback.');
+    }
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -104,6 +124,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
       client_id: this.opts.clientId,
       code_verifier: verifier
     });
+
     const resp = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -111,6 +132,7 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     });
     if (!resp.ok) throw new Error('Token exchange failed: ' + (await resp.text()));
     const data = (await resp.json()) as TokenResponse;
+
     this.tokens = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -121,6 +143,20 @@ export class Auth extends Emitter<{ tokens: (t: TokenSet | null) => void }> {
     sessionStorage.removeItem(this.verifierKey);
     sessionStorage.removeItem(this.stateKey);
     this.emit('tokens', this.tokens);
+
+    // Clean URL (remove code/state from hash or search)
+    try {
+      const clean = this.cleanUrl(url);
+      history.replaceState({}, '', clean);
+    } catch {}
+  }
+
+  private cleanUrl(url: URL): string {
+    // Normalize to app root with hash route
+    const base = `${url.origin}${url.pathname.replace(/\/callback\/?$/, '/')}`;
+    if (url.hash.startsWith('#/callback')) return base + '#/';
+    if (url.search) return base + url.hash; // drop ?code if any
+    return base + url.hash;
   }
 
   async refresh(): Promise<void> {
