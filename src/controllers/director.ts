@@ -33,6 +33,28 @@ type FlowP = {
   hue: number; size: number; alpha: number;
 };
 
+// Tiny cover sprite following the flow
+type FlowSprite = {
+  x: number; y: number;
+  vx: number; vy: number;
+  angle: number;
+  life: number; ttl: number;
+  scale: number; alpha: number;
+};
+
+type FlowSettings = {
+  particleCount: number;      // 100..2000
+  speed: number;              // base speed multiplier
+  lineWidth: number;          // trail width
+  colorMode: 'palette' | 'key' | 'image';
+  edgeOverlay: boolean;       // show edge strength overlay
+  swirlAmount: number;        // 0..1 blend into procedural swirl
+  spritesEnabled: boolean;    // enable tiny album covers
+  spriteCount: number;        // number of sprites
+  spriteScalePct: number;     // sprite size as percent of min(w,h)
+  spriteBeatBurst: boolean;   // respawn sprites on beats
+};
+
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -103,12 +125,29 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Album art flow field
   private albumArtUrl: string | null = null;
+  private albumImg: HTMLImageElement | null = null; // original image for sprites
   private flowW = 0;
   private flowH = 0;
   private flowVec: Float32Array | null = null; // [vx, vy] per texel (tangent)
   private flowMag: Float32Array | null = null; // magnitude 0..1
+  private flowOverlayCanvas: HTMLCanvasElement | null = null;
+  private flowImageCanvas: HTMLCanvasElement | null = null; // color sampling
+
   private flowParticles: FlowP[] = [];
-  private flowParticlesTarget = 0;
+  private flowSprites: FlowSprite[] = [];
+
+  private flowSettings: FlowSettings = {
+    particleCount: 1200,
+    speed: 36,
+    lineWidth: 1.2,
+    colorMode: 'palette',
+    edgeOverlay: false,
+    swirlAmount: 0.6,
+    spritesEnabled: false,
+    spriteCount: 18,
+    spriteScalePct: 6,
+    spriteBeatBurst: true
+  };
 
   constructor(private api: SpotifyAPI) {
     super();
@@ -148,12 +187,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ball.x = w / 2; this.ball.y = h / 2;
       if (this.ball.vx === 0 && this.ball.vy === 0) this.randomizeBallDirection();
 
-      // Flow particles target count
-      this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
-      // Re-initialize particles to fit new size smoothly
-      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
-        this.ensureFlowParticles();
-      }
+      // Adjust defaults by motion
+      this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
+      this.ensureFlowParticles();
+      this.ensureFlowSprites();
     };
     window.addEventListener('resize', onResize);
     onResize();
@@ -169,7 +206,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   getCanvas(): HTMLCanvasElement { return this.canvas; }
 
   setPalette(p: UIPalette) {
-    // store as base palette and reset working palette immediately
     this.basePalette = { ...p, colors: [...p.colors] };
     this.palette = { ...p, colors: [...p.colors] };
     this.emit('palette', p);
@@ -181,18 +217,24 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.albumArtUrl = url;
     try {
       const img = await loadImage(url);
+      this.albumImg = img;
       await this.buildFlowField(img);
-      // Reset particles to take advantage of new field
+      // Reset particles/sprites to take advantage of new field
       this.flowParticles = [];
+      this.flowSprites = [];
       if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') {
         this.ensureFlowParticles();
+        this.ensureFlowSprites();
       }
     } catch (e) {
-      // If art fails (CORS/404), clear field so scene will fallback gracefully
+      // If art fails (CORS/404), clear field so scene uses procedural fallback
       this.flowVec = null;
       this.flowMag = null;
       this.flowW = 0;
       this.flowH = 0;
+      this.albumImg = null;
+      this.flowOverlayCanvas = null;
+      this.flowImageCanvas = null;
     }
   }
 
@@ -259,12 +301,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
           <span>Beat confetti</span>
         </label>
+
+        <div style="margin-top:10px;">
+          <button id="open-flow-panel">Configure Flow Field…</button>
+        </div>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
         .addEventListener('change', (e) => {
           this.reduceMotion = (e.target as HTMLInputElement).checked;
-          // Update flow particles target on motion toggle
-          this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
+          // Update flow particle default
+          this.flowSettings.particleCount = this.reduceMotion ? 600 : 1200;
           this.ensureFlowParticles();
           this.togglePanel('access', false);
         });
@@ -277,7 +323,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         .addEventListener('change', (e) => {
           this.keyColorEnabled = (e.target as HTMLInputElement).checked;
           if (!this.keyColorEnabled) {
-            // snap back to base palette
             this.palette = { ...this.basePalette, colors: [...this.basePalette.colors] };
           }
           this.togglePanel('access', false);
@@ -292,8 +337,107 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           this.beatConfettiEnabled = (e.target as HTMLInputElement).checked;
           this.togglePanel('access', false);
         });
+      panel.querySelector<HTMLButtonElement>('#open-flow-panel')!
+        .addEventListener('click', () => {
+          this.togglePanel('access', false);
+          this.toggleFlowFieldPanel(true);
+        });
     });
     this.togglePanel('access', undefined);
+  }
+
+  private toggleFlowFieldPanel(force?: boolean) {
+    this.mountPanel('flow', 'Flow Field', (panel) => {
+      const s = this.flowSettings;
+      panel.innerHTML = `
+        <div style="display:flex;gap:8px;flex-direction:column;min-width:260px;">
+          <label>Particles: <input id="ff-count" type="range" min="100" max="2000" step="50" value="${s.particleCount}"><span id="ff-count-val">${s.particleCount}</span></label>
+          <label>Speed: <input id="ff-speed" type="range" min="10" max="120" step="1" value="${s.speed}"><span id="ff-speed-val">${s.speed}</span></label>
+          <label>Trail width: <input id="ff-width" type="range" min="0.5" max="4" step="0.1" value="${s.lineWidth}"><span id="ff-width-val">${s.lineWidth.toFixed(1)}</span></label>
+          <label>Color mode:
+            <select id="ff-color">
+              <option value="palette" ${s.colorMode==='palette'?'selected':''}>Album palette</option>
+              <option value="key" ${s.colorMode==='key'?'selected':''}>Musical key hue</option>
+              <option value="image" ${s.colorMode==='image'?'selected':''}>Sample from cover</option>
+            </select>
+          </label>
+
+          <label style="display:flex;gap:8px;align-items:center;">
+            <input id="ff-edge" type="checkbox" ${s.edgeOverlay?'checked':''}/> Edge overlay
+          </label>
+
+          <label>Swirl fallback blend:
+            <input id="ff-swirl" type="range" min="0" max="1" step="0.05" value="${s.swirlAmount}"><span id="ff-swirl-val">${s.swirlAmount.toFixed(2)}</span>
+          </label>
+
+          <fieldset style="border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;">
+            <legend>Tiny covers</legend>
+            <label style="display:flex;gap:8px;align-items:center;">
+              <input id="ff-sprites" type="checkbox" ${s.spritesEnabled?'checked':''}/> Enable tiny album covers
+            </label>
+            <label>Count:
+              <input id="ff-sprite-count" type="range" min="0" max="64" step="1" value="${s.spriteCount}">
+              <span id="ff-sprite-count-val">${s.spriteCount}</span>
+            </label>
+            <label>Size (% of min dimension):
+              <input id="ff-sprite-scale" type="range" min="2" max="14" step="1" value="${s.spriteScalePct}">
+              <span id="ff-sprite-scale-val">${s.spriteScalePct}%</span>
+            </label>
+            <label style="display:flex;gap:8px;align-items:center;">
+              <input id="ff-sprite-beat" type="checkbox" ${s.spriteBeatBurst?'checked':''}/> Burst on beats
+            </label>
+          </fieldset>
+        </div>
+      `;
+
+      // Wire inputs
+      panel.querySelector<HTMLInputElement>('#ff-count')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.particleCount = v;
+        panel.querySelector('#ff-count-val')!.textContent = String(v);
+        this.ensureFlowParticles();
+      };
+      panel.querySelector<HTMLInputElement>('#ff-speed')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.speed = v;
+        panel.querySelector('#ff-speed-val')!.textContent = String(v);
+      };
+      panel.querySelector<HTMLInputElement>('#ff-width')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.lineWidth = v;
+        panel.querySelector('#ff-width-val')!.textContent = v.toFixed(1);
+      };
+      panel.querySelector<HTMLSelectElement>('#ff-color')!.onchange = (e) => {
+        this.flowSettings.colorMode = (e.target as HTMLSelectElement).value as FlowSettings['colorMode'];
+      };
+      panel.querySelector<HTMLInputElement>('#ff-edge')!.onchange = (e) => {
+        this.flowSettings.edgeOverlay = (e.target as HTMLInputElement).checked;
+      };
+      panel.querySelector<HTMLInputElement>('#ff-swirl')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.swirlAmount = v;
+        panel.querySelector('#ff-swirl-val')!.textContent = v.toFixed(2);
+      };
+      panel.querySelector<HTMLInputElement>('#ff-sprites')!.onchange = (e) => {
+        this.flowSettings.spritesEnabled = (e.target as HTMLInputElement).checked;
+        this.ensureFlowSprites();
+      };
+      panel.querySelector<HTMLInputElement>('#ff-sprite-count')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.spriteCount = v;
+        panel.querySelector('#ff-sprite-count-val')!.textContent = String(v);
+        this.ensureFlowSprites();
+      };
+      panel.querySelector<HTMLInputElement>('#ff-sprite-scale')!.oninput = (e) => {
+        const v = Number((e.target as HTMLInputElement).value);
+        this.flowSettings.spriteScalePct = v;
+        panel.querySelector('#ff-sprite-scale-val')!.textContent = `${v}%`;
+      };
+      panel.querySelector<HTMLInputElement>('#ff-sprite-beat')!.onchange = (e) => {
+        this.flowSettings.spriteBeatBurst = (e.target as HTMLInputElement).checked;
+      };
+    });
+    this.togglePanel('flow', force);
   }
 
   setFeaturesEnabled(on: boolean) {
@@ -360,8 +504,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       } else {
         this.keyHueTarget = null;
       }
-
-      // Optional analysis: not required here
     } catch {
       // Back off features if forbidden
       this.features = {};
@@ -856,15 +998,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   // Key color morph
   private updateKeyPalette(dt: number) {
     if (!this.keyColorEnabled || this.keyHueTarget == null) return;
-    // ease current hue toward target
     const delta = angularDelta(this.keyHueCurrent, this.keyHueTarget);
     this.keyHueCurrent = (this.keyHueCurrent + delta * Math.min(1, dt * 3)) % 360;
 
-    // mix amount depends on mode (minor = subtler)
     const mode = this.features.mode ?? 1;
     const mixAmt = mode === 1 ? 0.6 : 0.4;
 
-    // produce a shifted palette from base and blend
     const shifted = shiftPaletteHue(this.basePalette, this.keyHueCurrent);
     this.palette = blendPalettes(this.basePalette, shifted, mixAmt);
   }
@@ -896,17 +1035,22 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const srcAR = cw / ch;
     let sx = 0, sy = 0, sw = cw, sh = ch;
     if (srcAR > targetAR) {
-      // source is wider: crop width
       sw = ch * targetAR;
       sx = (cw - sw) / 2;
     } else {
-      // source is taller: crop height
       sh = cw / targetAR;
       sy = (ch - sh) / 2;
     }
     o.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
 
-    const data = o.getImageData(0, 0, w, h).data;
+    const imgData = o.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    // Keep a copy for color sampling (upscaled later)
+    this.flowImageCanvas = document.createElement('canvas');
+    this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
+    this.flowImageCanvas.getContext('2d')!.putImageData(imgData, 0, 0);
+
     // Grayscale luminance
     const lum = new Float32Array(w * h);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
@@ -919,6 +1063,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     // Sobel kernels produce gradient (gx, gy)
     const idx = (x: number, y: number) => y * w + x;
+    let maxEdge = 0;
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const i00 = idx(x - 1, y - 1), i01 = idx(x, y - 1), i02 = idx(x + 1, y - 1);
@@ -943,9 +1088,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           tx /= m; ty /= m;
           vec[pos * 2 + 0] = tx;
           vec[pos * 2 + 1] = ty;
-          // edge magnitude (normalize and curve for contrast)
-          const em = Math.min(1, Math.hypot(gx, gy) / 512);
-          mag[pos] = Math.pow(em, 0.7);
+          const em = Math.hypot(gx, gy);
+          maxEdge = Math.max(maxEdge, em);
+          mag[pos] = em;
         } else {
           vec[pos * 2 + 0] = 0;
           vec[pos * 2 + 1] = 0;
@@ -953,22 +1098,41 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         }
       }
     }
+    // Normalize magnitudes to 0..1 with a curve
+    const invMax = maxEdge > 0 ? 1 / maxEdge : 1;
+    for (let i = 0; i < mag.length; i++) {
+      const m = Math.min(1, mag[i] * invMax);
+      mag[i] = Math.pow(m, 0.7);
+    }
+
+    // Prebuild overlay image
+    const overlay = document.createElement('canvas');
+    overlay.width = w; overlay.height = h;
+    const oc = overlay.getContext('2d')!;
+    const heat = oc.createImageData(w, h);
+    const hd = heat.data;
+    for (let i = 0; i < mag.length; i++) {
+      const v = Math.round(mag[i] * 255);
+      hd[i * 4 + 0] = v;
+      hd[i * 4 + 1] = v;
+      hd[i * 4 + 2] = v;
+      hd[i * 4 + 3] = Math.round(255 * 0.9);
+    }
+    oc.putImageData(heat, 0, 0);
 
     this.flowW = w;
     this.flowH = h;
     this.flowVec = vec;
     this.flowMag = mag;
+    this.flowOverlayCanvas = overlay;
   }
 
   private ensureFlowParticles() {
     const W = this.bufferA.width;
     const H = this.bufferA.height;
-    this.flowParticlesTarget = this.reduceMotion ? 450 : 1200;
-    while (this.flowParticles.length < this.flowParticlesTarget) {
-      const hue = this.keyHueTarget != null && this.keyColorEnabled
-        ? (this.keyHueTarget + Math.random() * 40 - 20 + 360) % 360
-        : rgbToHsl(hexToRgb(this.palette.colors[this.flowParticles.length % this.palette.colors.length] || this.palette.dominant)!).h;
-
+    const target = this.flowSettings.particleCount | 0;
+    while (this.flowParticles.length < target) {
+      const hue = this.pickFlowHue(this.flowParticles.length);
       this.flowParticles.push({
         x: Math.random() * W,
         y: Math.random() * H,
@@ -981,16 +1145,30 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         alpha: 0.5 + Math.random() * 0.5
       });
     }
-    // Trim if needed
-    if (this.flowParticles.length > this.flowParticlesTarget) {
-      this.flowParticles.length = this.flowParticlesTarget;
-    }
-    // Initialize previous positions
+    if (this.flowParticles.length > target) this.flowParticles.length = target;
     for (const p of this.flowParticles) { p.px = p.x; p.py = p.y; }
   }
 
+  private ensureFlowSprites() {
+    const W = this.bufferA.width, H = this.bufferA.height;
+    const target = this.flowSettings.spritesEnabled ? this.flowSettings.spriteCount : 0;
+    while (this.flowSprites.length < target) {
+      this.flowSprites.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: 0, vy: 0,
+        angle: 0,
+        life: 0,
+        ttl: 3 + Math.random() * 6,
+        scale: 1,
+        alpha: 0.9
+      });
+    }
+    if (this.flowSprites.length > target) this.flowSprites.length = target;
+  }
+
   private onBeat_FlowField() {
-    // On beat: refresh some particles and boost alpha
+    // On beat: refresh some particles and optionally respawn sprites
     const n = Math.min(120, Math.round((this.flowParticles.length * 0.08) || 0));
     const W = this.bufferA.width, H = this.bufferA.height;
     for (let i = 0; i < n; i++) {
@@ -1004,77 +1182,61 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       p.ttl = 1.5 + Math.random() * 4;
       p.alpha = 0.8;
     }
+
+    if (this.flowSettings.spritesEnabled && this.flowSettings.spriteBeatBurst && this.flowSprites.length) {
+      for (let i = 0; i < Math.min(6, this.flowSprites.length); i++) {
+        const s = this.flowSprites[(Math.random() * this.flowSprites.length) | 0];
+        s.life = 0;
+        s.ttl = 2 + Math.random() * 5;
+        s.alpha = 1;
+      }
+    }
   }
 
   private drawFlowField(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Background subtle fill using palette
+    // Background using palette
     const bg = ctx.createLinearGradient(0, 0, w, h);
     bg.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
     bg.addColorStop(1, this.palette.colors.at(-1) || this.palette.secondary);
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Trails: darken a bit to leave paths
+    // Trails fade
     ctx.fillStyle = 'rgba(0,0,0,0.10)';
     ctx.fillRect(0, 0, w, h);
 
-    // Ensure field and particles
-    if (!this.flowVec || !this.flowMag || !this.flowW || !this.flowH) {
-      // Fallback to a simple swirly field
-      this.drawParticles(ctx, w, h, time, dt);
-      return;
-    }
+    // Particles
     this.ensureFlowParticles();
 
-    const baseSpeed = (this.reduceMotion ? 24 : 36) + (this.features.energy ?? 0.5) * (this.reduceMotion ? 24 : 42);
+    const baseSpeed = this.flowSettings.speed + (this.features.energy ?? 0.5) * (this.reduceMotion ? 20 : 30);
     const beatBoost = this.beatActive ? 1.45 : 1.0;
-    const jitter = this.reduceMotion ? 0.1 : 0.18;
+    const jitter = this.reduceMotion ? 0.08 : 0.16;
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
     for (let i = 0; i < this.flowParticles.length; i++) {
       const p = this.flowParticles[i];
 
-      // Sample flow vector (bilinear)
-      const fx = (p.x / w) * (this.flowW - 1);
-      const fy = (p.y / h) * (this.flowH - 1);
-      const ix = Math.floor(fx), iy = Math.floor(fy);
-      const tx = fx - ix, ty = fy - iy;
+      // Sample flow vector (art + swirl)
+      const fv = this.sampleFlowVector(p.x, p.y, w, h, time);
+      const m = fv[2]; // strength
+      const targetVx = fv[0] * baseSpeed * (0.4 + m) * beatBoost;
+      const targetVy = fv[1] * baseSpeed * (0.4 + m) * beatBoost;
 
-      const v00 = this.getFlow(ix,     iy);
-      const v10 = this.getFlow(ix + 1, iy);
-      const v01 = this.getFlow(ix,     iy + 1);
-      const v11 = this.getFlow(ix + 1, iy + 1);
-
-      // bilinear interpolate vector
-      const vx = lerp(lerp(v00[0], v10[0], tx), lerp(v01[0], v11[0], tx), ty);
-      const vy = lerp(lerp(v00[1], v10[1], tx), lerp(v01[1], v11[1], tx), ty);
-
-      // magnitude for this texel
-      const m00 = this.getMag(ix,     iy);
-      const m10 = this.getMag(ix + 1, iy);
-      const m01 = this.getMag(ix,     iy + 1);
-      const m11 = this.getMag(ix + 1, iy + 1);
-      const m = lerp(lerp(m00, m10, tx), lerp(m01, m11, tx), ty);
-
-      // Desired velocity along field
-      const targetVx = vx * baseSpeed * (0.4 + m) * beatBoost;
-      const targetVy = vy * baseSpeed * (0.4 + m) * beatBoost;
-
-      // Integrate with some inertia
       p.vx = lerp(p.vx, targetVx, 0.08 + m * 0.12);
       p.vy = lerp(p.vy, targetVy, 0.08 + m * 0.12);
 
-      // Jitter to keep it lively
       p.vx += (Math.random() - 0.5) * jitter;
       p.vy += (Math.random() - 0.5) * jitter;
 
-      // Advance
       p.px = p.x; p.py = p.y;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      // Wrap / respawn
+      // Wrap/respawn
       p.life += dt;
       if (p.life > p.ttl || p.x < -2 || p.y < -2 || p.x > w + 2 || p.y > h + 2) {
         p.x = Math.random() * w;
@@ -1084,13 +1246,33 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         p.life = 0;
         p.ttl = 1.5 + Math.random() * 4;
         // Slight hue drift
-        p.hue = (p.hue + (Math.random() - 0.5) * 20) % 360;
+        p.hue = this.pickFlowHue(i);
       }
 
-      // Draw streak
-      const alpha = Math.min(1, p.alpha * (0.6 + m));
-      ctx.strokeStyle = `hsla(${p.hue}, 90%, ${60 + (this.features.valence ?? 0.5) * 20}%, ${alpha})`;
-      ctx.lineWidth = p.size * (1 + m * 0.8);
+      // Color
+      let stroke = '';
+      switch (this.flowSettings.colorMode) {
+        case 'key': {
+          const hue = (this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h) % 360;
+          stroke = `hsla(${hue}, 90%, ${60 + (this.features.valence ?? 0.5) * 20}%, ${Math.min(1, p.alpha * (0.6 + m))})`;
+          break;
+        }
+        case 'image': {
+          const c = this.sampleImageColor(p.x, p.y, w, h);
+          stroke = `rgba(${c.r}, ${c.g}, ${c.b}, ${Math.min(1, p.alpha * (0.6 + m))})`;
+          break;
+        }
+        case 'palette':
+        default: {
+          const col = this.palette.colors[i % this.palette.colors.length] || this.palette.dominant;
+          const rgb = hexToRgb(col)!;
+          stroke = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Math.min(1, p.alpha * (0.6 + m))})`;
+          break;
+        }
+      }
+
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = this.flowSettings.lineWidth * (1 + m * 0.8);
       ctx.beginPath();
       ctx.moveTo(p.px, p.py);
       ctx.lineTo(p.x, p.y);
@@ -1098,6 +1280,118 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
+
+    // Edge overlay
+    if (this.flowSettings.edgeOverlay && this.flowOverlayCanvas) {
+      ctx.globalAlpha = 0.15;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.flowOverlayCanvas, 0, 0, w, h);
+      ctx.globalAlpha = 1;
+    }
+
+    // Tiny album cover sprites
+    if (this.flowSettings.spritesEnabled && this.albumImg) {
+      this.ensureFlowSprites();
+      const minDim = Math.min(w, h);
+      const spriteSize = Math.max(8, Math.round((this.flowSettings.spriteScalePct / 100) * minDim));
+
+      for (let i = 0; i < this.flowSprites.length; i++) {
+        const s = this.flowSprites[i];
+        const fv = this.sampleFlowVector(s.x, s.y, w, h, time);
+        const m = fv[2];
+        const targetVx = fv[0] * (baseSpeed * 0.9) * (0.4 + m) * beatBoost;
+        const targetVy = fv[1] * (baseSpeed * 0.9) * (0.4 + m) * beatBoost;
+        s.vx = lerp(s.vx, targetVx, 0.06 + m * 0.10);
+        s.vy = lerp(s.vy, targetVy, 0.06 + m * 0.10);
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.angle = Math.atan2(s.vy, s.vx);
+
+        s.life += dt;
+        if (s.life > s.ttl || s.x < -spriteSize || s.y < -spriteSize || s.x > w + spriteSize || s.y > h + spriteSize) {
+          s.x = Math.random() * w;
+          s.y = Math.random() * h;
+          s.vx = s.vy = 0;
+          s.life = 0;
+          s.ttl = 3 + Math.random() * 6;
+          s.alpha = 0.95;
+        }
+
+        // Draw sprite
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.angle);
+        const hw = spriteSize / 2;
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(this.albumImg, -hw, -hw, spriteSize, spriteSize);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
+  }
+
+  // Sample from combined flow: album edge vectors + procedural swirl based on settings
+  private sampleFlowVector(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
+    let vx = 0, vy = 0, m = 0;
+
+    if (this.flowVec && this.flowMag && this.flowW && this.flowH) {
+      // Bilinear sample
+      const fx = (x / w) * (this.flowW - 1);
+      const fy = (y / h) * (this.flowH - 1);
+      const ix = Math.floor(fx), iy = Math.floor(fy);
+      const tx = fx - ix, ty = fy - iy;
+
+      const v00 = this.getFlow(ix,     iy);
+      const v10 = this.getFlow(ix + 1, iy);
+      const v01 = this.getFlow(ix,     iy + 1);
+      const v11 = this.getFlow(ix + 1, iy + 1);
+
+      const mv00 = this.getMag(ix,     iy);
+      const mv10 = this.getMag(ix + 1, iy);
+      const mv01 = this.getMag(ix,     iy + 1);
+      const mv11 = this.getMag(ix + 1, iy + 1);
+
+      vx = lerp(lerp(v00[0], v10[0], tx), lerp(v01[0], v11[0], tx), ty);
+      vy = lerp(lerp(v00[1], v10[1], tx), lerp(v01[1], v11[1], tx), ty);
+      m = lerp(lerp(mv00, mv10, tx), lerp(mv01, mv11, tx), ty);
+    }
+
+    // Procedural swirl fallback/blend
+    const swirlT = this.flowSettings.swirlAmount;
+    if (swirlT > 0) {
+      const s = this.sampleSwirl(x, y, w, h, time);
+      // Blend swirl in; if no art vectors, m is small so give swirl some strength
+      const blend = swirlT * (0.6 + 0.4 * (1 - m));
+      vx = lerp(vx, s[0], blend);
+      vy = lerp(vy, s[1], blend);
+      m = Math.max(m, s[2] * swirlT);
+    }
+
+    // Normalize to avoid zero-length vectors
+    const len = Math.hypot(vx, vy);
+    if (len > 1e-5) { vx /= len; vy /= len; }
+    return [vx, vy, Math.max(0, Math.min(1, m))];
+  }
+
+  // Swirl vector field (animated)
+  private sampleSwirl(x: number, y: number, w: number, h: number, time: number): [number, number, number] {
+    // Map to -1..1 space
+    const nx = (x / w) * 2 - 1;
+    const ny = (y / h) * 2 - 1;
+    const r = Math.hypot(nx, ny) + 1e-6;
+    const angle = Math.atan2(ny, nx);
+
+    // Add gentle time-based rotation and radial flow
+    const t = time * 0.2;
+    const twist = Math.sin(angle * 3 + t) * 0.5 + Math.cos(r * 6 - t) * 0.5;
+    const dir = angle + Math.PI / 2 + twist * 0.5;
+
+    let vx = Math.cos(dir);
+    let vy = Math.sin(dir);
+
+    // Magnitude strongest around mid-radius
+    const mag = Math.exp(-((r - 0.6) * (r - 0.6)) * 6);
+    return [vx, vy, mag];
   }
 
   private getFlow(x: number, y: number): [number, number] {
@@ -1111,6 +1405,26 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     y = clampInt(y, 0, this.flowH - 1);
     const i = (y * this.flowW + x);
     return this.flowMag ? this.flowMag[i] : 0;
+  }
+
+  private sampleImageColor(x: number, y: number, w: number, h: number) {
+    if (!this.flowImageCanvas) {
+      const c = hexToRgb(this.palette.dominant)!;
+      return c;
+    }
+    const fx = Math.max(0, Math.min(1, x / w));
+    const fy = Math.max(0, Math.min(1, y / h));
+    const px = Math.floor(fx * (this.flowImageCanvas.width - 1));
+    const py = Math.floor(fy * (this.flowImageCanvas.height - 1));
+    const ctx = this.flowImageCanvas.getContext('2d')!;
+    const d = ctx.getImageData(px, py, 1, 1).data;
+    return { r: d[0], g: d[1], b: d[2] };
+  }
+
+  private pickFlowHue(i: number): number {
+    if (this.flowSettings.colorMode === 'key' && this.keyHueTarget != null) return this.keyHueTarget;
+    const col = this.palette.colors[i % this.palette.colors.length] || this.palette.dominant;
+    return rgbToHsl(hexToRgb(col)!).h;
   }
 
   // Panels infra
@@ -1133,8 +1447,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.dataset.id = id;
       panel.style.position = 'absolute';
       panel.style.right = '12px';
-      panel.style.top = id === 'quality' ? '56px' : '128px';
-      panel.style.minWidth = '240px';
+      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : '208px';
+      panel.style.minWidth = '260px';
       panel.style.zIndex = '1000';
       panel.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
