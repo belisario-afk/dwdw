@@ -2587,4 +2587,194 @@ function hslToRgb(h: number, s: number, l: number) {
   s = Math.max(0, Math.min(1, s));
   l = Math.max(0, Math.min(1, l));
   const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+  else { r1 = c; g1 = 0; b1 = x; }
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255)
+  };
+}
+function shiftHueHex(hex: string, hue: number) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const { s, l } = rgbToHsl(rgb);
+  const rgb2 = hslToRgb(hue, s, l);
+  return rgbToHex(rgb2);
+}
+function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
+  return {
+    dominant: shiftHueHex(p.dominant, hue),
+    secondary: shiftHueHex(p.secondary, hue),
+    colors: p.colors.map((c) => shiftHueHex(c, hue))
+  };
+}
+function blendHex(a: string, b: string, t: number) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  if (!A || !B) return a;
+  return rgbToHex({
+    r: Math.round(A.r + (B.r - A.r) * t),
+    g: Math.round(A.g + (B.g - A.g) * t),
+    b: Math.round(A.b + (B.b - A.b) * t)
+  });
+}
+function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
+  return {
+    dominant: blendHex(a.dominant, b.dominant, t),
+    secondary: blendHex(a.secondary, b.secondary, t),
+    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
+  };
+}
+function angularDelta(current: number, target: number) {
+  let d = ((target - current + 540) % 360) - 180;
+  return d;
+}
+
+// Polygon clip against half-plane: keep points P s.t. dot(P - M, S) <= 0
+function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, sx: number, sy: number, mx: number, my: number) {
+  if (poly.length === 0) return poly;
+  const out: Array<{ x: number; y: number }> = [];
+  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
+
+  for (let i = 0; i < poly.length; i++) {
+    const A = poly[i];
+    const B = poly[(i + 1) % poly.length];
+    const fa = f(A.x, A.y);
+    const fb = f(B.x, B.y);
+    const ain = fa <= 0;
+    const bin = fb <= 0;
+
+    if (ain && bin) {
+      // in -> in
+      out.push({ x: B.x, y: B.y });
+    } else if (ain && !bin) {
+      // in -> out : add intersection
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+    } else if (!ain && bin) {
+      // out -> in : add intersection + B
+      const t = fa / (fa - fb);
+      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+      out.push({ x: B.x, y: B.y });
+    } else {
+      // out -> out : nothing
+    }
+  }
+  return out;
+}
+
+// Tint an RGB color toward a target hue by amount 0..1
+function tintRgbTowardHue(c: { r: number; g: number; b: number }, hue: number, amt: number) {
+  if (amt <= 0) return c;
+  const hsl = rgbToHsl(c);
+  const tgt = hslToRgb(hue, Math.max(0.45, hsl.s), hsl.l);
+  return {
+    r: Math.round(lerp(c.r, tgt.r, amt)),
+    g: Math.round(lerp(c.g, tgt.g, amt)),
+    b: Math.round(lerp(c.b, tgt.b, amt))
+  };
+}
+
+// Parse helpers for lyrics
+
+function parseTimeTag(min: string, sec: string, frac?: string) {
+  const m = parseInt(min, 10) || 0;
+  const s = parseInt(sec, 10) || 0;
+  const f = frac ? parseInt(frac.padEnd(3, '0').slice(0, 3), 10) : 0;
+  return m * 60 + s + f / 1000;
+}
+
+// Parse standard LRC with optional per-word tags like <mm:ss.xx>
+function parseLRC(lrc: string): LyricLine[] {
+  const lines: { ts: number; text: string }[] = [];
+  const timeTag = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?]/g;
+
+  const rawLines = lrc.split(/\r?\n/);
+  for (const raw of rawLines) {
+    if (!raw.trim()) continue;
+    // Extract all leading time tags
+    let match: RegExpExecArray | null;
+    timeTag.lastIndex = 0;
+    const stamps: number[] = [];
+    let textStartIdx = 0;
+    while ((match = timeTag.exec(raw))) {
+      stamps.push(parseTimeTag(match[1], match[2], match[3]));
+      textStartIdx = timeTag.lastIndex;
+    }
+    const text = raw.slice(textStartIdx).trim();
+    if (!stamps.length || !text) continue;
+    for (const ts of stamps) {
+      lines.push({ ts, text });
+    }
+  }
+  // Sort by timestamp
+  lines.sort((a, b) => a.ts - b.ts);
+
+  // Build line objects and estimate end time as next start
+  const out: LyricLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const start = lines[i].ts;
+    const end = i + 1 < lines.length ? lines[i + 1].ts : start + 5;
+    out.push({ start, end, text: lines[i].text });
+  }
+
+  // Optional: per-word timing if inline tags exist
+  if (lrc.indexOf('<') !== -1) {
+    const wordTag = /<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>/g;
+    for (const ln of out) {
+      const src = ln.text;
+      wordTag.lastIndex = 0;
+      const words: LyricWord[] = [];
+      let lastIdx = 0;
+      let m: RegExpExecArray | null;
+      const starts: number[] = [];
+      let collectedText = '';
+      while ((m = wordTag.exec(src))) {
+        const before = src.slice(lastIdx, m.index);
+        if (before.trim()) {
+          collectedText += before;
+        }
+        const start = parseTimeTag(m[1], m[2], m[3]);
+        starts.push(start);
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < src.length) collectedText += src.slice(lastIdx);
+      if (starts.length && collectedText.trim()) {
+        const tokens = collectedText.trim().split(/\s+/);
+        const N = Math.min(tokens.length, starts.length);
+        for (let i = 0; i < N; i++) {
+          const st = starts[i];
+          const en = i + 1 < N ? starts[i + 1] : ln.end;
+          words.push({ start: st, end: en, text: tokens[i] });
+        }
+        ln.words = words;
+        ln.text = tokens.join(' ');
+      }
+    }
+  }
+
+  return out;
+}
+
+// Fallback: evenly distribute plain lyrics lines across track duration
+function parsePlainLyrics(plain: string, durationSec: number): LyricLine[] {
+  const rows = plain.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!rows.length || durationSec <= 0) return [];
+  const base = 1.0; // start at 1s in
+  const total = Math.max(5, durationSec - 1);
+  const step = Math.max(1, total / rows.length);
+  const out: LyricLine[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const start = base + i * step;
+    const end = i + 1 < rows.length ? base + (i + 1) * step : base + durationSec;
+    out.push({ start, end, text: rows[i] });
+  }
+  return out;
+}
