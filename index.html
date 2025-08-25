@@ -25,7 +25,6 @@
       #screensaver.active { display:flex; }
       a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
     </style>
-    <!-- Stub to prevent SDK error if our app hasn't run yet -->
     <script>
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function(){};
     </script>
@@ -53,6 +52,7 @@
             <button id="btn-prev">⏮</button>
             <button id="btn-play">▶</button>
             <button id="btn-pause" class="hidden">⏸</button>
+            <button id="btn-next">⏭</button>
             <input id="seek" type="range" min="0" max="1000" value="0" step="1" style="width: 240px;" />
             <span id="time-label" class="badge">0:00 / 0:00</span>
             <input id="volume" type="range" min="0" max="100" value="80" step="1" title="Volume" />
@@ -79,7 +79,6 @@
         <div id="screensaver"><div class="panel">Screensaver — press any key</div></div>
       </div>
     </div>
-    <!-- Important: relative path. Vite rewrites to /dwdw/assets/*.js in production -->
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

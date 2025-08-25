@@ -7,9 +7,7 @@ export default defineConfig({
   base: '/dwdw/',
   resolve: {
     alias: [
-      // Direct file alias to be absolutely sure this resolves
       { find: '@auth/pkce', replacement: r('src/auth/pkce.ts') },
-      // Folder aliases
       { find: '@auth', replacement: r('src/auth') },
       { find: '@spotify', replacement: r('src/spotify') },
       { find: '@audio', replacement: r('src/audio') },
@@ -20,5 +18,8 @@ export default defineConfig({
     ]
   },
   server: { host: '127.0.0.1', port: 5173 },
-  build: { target: 'es2020' }
+  build: {
+    target: 'es2020',
+    sourcemap: true
+  }
 });
