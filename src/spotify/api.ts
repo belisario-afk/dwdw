@@ -11,18 +11,14 @@ export class SpotifyAPI {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': body ? 'application/json' : undefined
-      } as any,
+        ...(body ? { 'Content-Type': 'application/json' } : {})
+      },
       body: body ? JSON.stringify(body) : undefined
     });
 
     if (!resp.ok) {
       let detail: any = null;
-      try {
-        detail = await resp.json();
-      } catch {
-        try { detail = { raw: await resp.text() }; } catch {}
-      }
+      try { detail = await resp.json(); } catch { try { detail = { raw: await resp.text() }; } catch {} }
       const message =
         (detail && (detail.error?.message || detail.message)) ||
         (detail && typeof detail === 'string' && detail) ||
@@ -37,16 +33,17 @@ export class SpotifyAPI {
     return resp.json();
   }
 
+  async me() { return this.request('GET', '/me'); }
   async getDevices() { return this.request('GET', '/me/player/devices'); }
-  async getCurrentPlayback() { return this.request('GET', '/me/player'); }
-  async getCurrentPlaybackCached() { return this.getCurrentPlayback(); }
-  async pause() { return this.request('PUT', '/me/player/pause'); }
-  async seek(positionMs: number) { return this.request('PUT', `/me/player/seek?position_ms=${Math.round(positionMs)}`); }
   async transferPlayback(deviceId: string, play = false) {
     return this.request('PUT', '/me/player', { device_ids: [deviceId], play });
   }
-  async me() { return this.request('GET', '/me'); }
+  async getCurrentPlayback() { return this.request('GET', '/me/player'); }
+  async getCurrentPlaybackCached() { return this.getCurrentPlayback(); }
+
+  async pause() { return this.request('PUT', '/me/player/pause'); }
+  async seek(positionMs: number) { return this.request('PUT', `/me/player/seek?position_ms=${Math.round(positionMs)}`); }
+
   async getAudioFeatures(trackId: string) { return this.request('GET', `/audio-features/${trackId}`); }
-  // Optional: refine beats when available (we swallow errors in the director)
   async getAudioAnalysis(trackId: string) { return this.request('GET', `/audio-analysis/${trackId}`); }
 }

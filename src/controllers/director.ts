@@ -17,7 +17,12 @@ type AudioFeaturesLite = {
   tempo?: number;        // BPM
   energy?: number;       // 0..1
   danceability?: number; // 0..1
+  valence?: number;      // 0..1
+  key?: number;          // 0..11 (C..B)
+  mode?: number;         // 1=major, 0=minor
 };
+
+type Confetti = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number; size: number; };
 
 export class VisualDirector extends Emitter<DirectorEvents> {
   private canvas: HTMLCanvasElement;
@@ -38,27 +43,45 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private nextSceneName: string | null = null;
 
   private sceneName: string = 'Auto';
-  private palette: UIPalette = {
+
+  // Palettes: base from album art, working is what we actually render
+  private basePalette: UIPalette = {
     dominant: '#22cc88',
     secondary: '#cc2288',
     colors: ['#22cc88', '#cc2288', '#22aacc', '#ffaa22']
   };
+  private palette: UIPalette = { ...this.basePalette };
   private reduceMotion = false;
 
-  // Audio-reactivity
+  // Feature toggles
   private featuresEnabled = true;
+  private keyColorEnabled = true;
+  private autoSceneOnDownbeat = true;
+  private beatConfettiEnabled = true;
+
+  // Audio-reactivity
   private features: AudioFeaturesLite = {};
   private lastTrackId: string | null = null;
   private featuresBackoffUntil = 0;
 
   // Beat scheduler
-  private beatInterval = 60 / 120; // seconds (default 120 BPM)
-  private nextBeatTime = 0;        // seconds since start (render time)
-  private beatPhaseJitter = 0;     // 0..beatInterval offset for variety
-  private lastBeatTime = -1;       // last beat timestamp
+  private beatInterval = 60 / 120; // seconds
+  private nextBeatTime = 0;        // seconds since start
+  private lastBeatTime = -1;
   private beatActive = false;
+  private beatCount = 0;           // counts beats to detect downbeats (every 4 beats)
 
-  // Lyric Lines scene state
+  // Downbeats (every 4 beats by default if analysis not used)
+  private downbeatEvery = 4;
+
+  // Key-to-hue palette morph
+  private keyHueTarget: number | null = null;
+  private keyHueCurrent: number = 0;
+
+  // Confetti
+  private confetti: Confetti[] = [];
+
+  // Lyric Lines scene
   private lyricText = 'DWDW';
   private textField: HTMLCanvasElement | null = null;
   private textPoints: Array<{ x: number; y: number }> = [];
@@ -66,10 +89,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private lastTextW = 0;
   private lastTextH = 0;
 
-  // Beat Ball scene state
-  private ball = {
-    x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140
-  };
+  // Beat Ball scene
+  private ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 280, radius: 28, hue: 140 };
 
   constructor(private api: SpotifyAPI) {
     super();
@@ -97,16 +118,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const onResize = () => {
       const w = Math.max(640, Math.floor(window.innerWidth));
       const h = Math.max(360, Math.floor(window.innerHeight));
-      this.canvas.width = w;
-      this.canvas.height = h;
+      this.canvas.width = w; this.canvas.height = h;
       const bw = Math.max(320, Math.floor(w * this.renderScale));
       const bh = Math.max(180, Math.floor(h * this.renderScale));
-      this.bufferA.width = bw;
-      this.bufferA.height = bh;
-      this.bufferB.width = bw;
-      this.bufferB.height = bh;
+      this.bufferA.width = bw; this.bufferA.height = bh;
+      this.bufferB.width = bw; this.bufferB.height = bh;
 
-      // Rebuild text field if needed
+      // Rebuild text field for lyric scene
       this.prepareTextField(this.lyricText, bw, bh);
       // Reset ball to center
       this.ball.x = w / 2; this.ball.y = h / 2;
@@ -123,12 +141,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Public API
 
-  getCanvas(): HTMLCanvasElement {
-    return this.canvas;
-  }
+  getCanvas(): HTMLCanvasElement { return this.canvas; }
 
   setPalette(p: UIPalette) {
-    this.palette = p;
+    // store as base palette and reset working palette immediately
+    this.basePalette = { ...p, colors: [...p.colors] };
+    this.palette = { ...p, colors: [...p.colors] };
     this.emit('palette', p);
   }
 
@@ -148,7 +166,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   toggleQualityPanel() {
     this.mountPanel('quality', 'Quality', (panel) => {
       panel.innerHTML = `
-        <div style="display:flex; gap:8px; align-items:center;">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button data-q="low">Low</button>
           <button data-q="med">Medium</button>
           <button data-q="high">High</button>
@@ -175,9 +193,25 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           <input id="reduce-motion" type="checkbox" ${this.reduceMotion ? 'checked' : ''} />
           <span>Reduce motion</span>
         </label>
+
         <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
           <input id="audio-reactive" type="checkbox" ${this.featuresEnabled ? 'checked' : ''} />
           <span>Audio reactive effects</span>
+        </label>
+
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
+          <input id="key-color" type="checkbox" ${this.keyColorEnabled ? 'checked' : ''} />
+          <span>Key color sync</span>
+        </label>
+
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
+          <input id="auto-scene" type="checkbox" ${this.autoSceneOnDownbeat ? 'checked' : ''} />
+          <span>Downbeat scene switching (Auto scene)</span>
+        </label>
+
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
+          <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
+          <span>Beat confetti</span>
         </label>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
@@ -188,6 +222,25 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.querySelector<HTMLInputElement>('#audio-reactive')!
         .addEventListener('change', (e) => {
           this.setFeaturesEnabled((e.target as HTMLInputElement).checked);
+          this.togglePanel('access', false);
+        });
+      panel.querySelector<HTMLInputElement>('#key-color')!
+        .addEventListener('change', (e) => {
+          this.keyColorEnabled = (e.target as HTMLInputElement).checked;
+          if (!this.keyColorEnabled) {
+            // snap back to base palette
+            this.palette = { ...this.basePalette, colors: [...this.basePalette.colors] };
+          }
+          this.togglePanel('access', false);
+        });
+      panel.querySelector<HTMLInputElement>('#auto-scene')!
+        .addEventListener('change', (e) => {
+          this.autoSceneOnDownbeat = (e.target as HTMLInputElement).checked;
+          this.togglePanel('access', false);
+        });
+      panel.querySelector<HTMLInputElement>('#beat-confetti')!
+        .addEventListener('change', (e) => {
+          this.beatConfettiEnabled = (e.target as HTMLInputElement).checked;
           this.togglePanel('access', false);
         });
     });
@@ -213,48 +266,50 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const artist = (track.artists && track.artists.length) ? track.artists.map(a => a.name).join(', ') : '';
     this.setLyricText(`${track.name}${artist ? ' — ' + artist : ''}`);
 
-    // Reset beat jitter on new track
-    this.beatPhaseJitter = Math.random() * this.beatInterval;
+    // Reset beat phase on new track
+    this.beatCount = 0;
 
-    // Audio features (optional)
     if (!track.id || (track as any).is_local) {
       this.lastTrackId = null;
       this.features = {};
+      this.keyHueTarget = null;
       this.recomputeBeatSchedule();
       return;
     }
     if (this.lastTrackId === track.id) return;
     this.lastTrackId = track.id;
 
-    if (!this.featuresEnabled) return;
-    if (Date.now() < this.featuresBackoffUntil) return;
+    if (!this.featuresEnabled || Date.now() < this.featuresBackoffUntil) {
+      this.recomputeBeatSchedule();
+      return;
+    }
 
     try {
       const f = await this.api.getAudioFeatures(track.id);
       this.features = {
         tempo: typeof f?.tempo === 'number' ? f.tempo : undefined,
         energy: typeof f?.energy === 'number' ? f.energy : undefined,
-        danceability: typeof f?.danceability === 'number' ? f.danceability : undefined
+        danceability: typeof f?.danceability === 'number' ? f.danceability : undefined,
+        valence: typeof f?.valence === 'number' ? f.valence : undefined,
+        key: typeof f?.key === 'number' && f.key >= 0 ? f.key : undefined,
+        mode: typeof f?.mode === 'number' ? f.mode : undefined
       };
       this.recomputeBeatSchedule();
-      // Try to refine beats from analysis (optional)
+
+      // Setup key hue target for palette morph
+      if (typeof this.features.key === 'number') {
+        const baseHue = (this.features.key % 12) * 30; // map 12 keys to 360°
+        const modeAdj = (this.features.mode ?? 1) === 1 ? 0 : -15; // minor shifts slightly cooler
+        this.keyHueTarget = ((baseHue + modeAdj) + 360) % 360;
+        this.keyHueCurrent = this.keyHueTarget;
+      } else {
+        this.keyHueTarget = null;
+      }
+
+      // Optional: analysis for bar alignment (not required for downbeats here)
       try {
-        const analysis = await this.api.getAudioAnalysis(track.id);
-        const beats: Array<{ start: number; duration: number; confidence: number }> = analysis?.beats || [];
-        if (beats && beats.length > 4) {
-          // Use average beat interval from confident beats
-          const intervals: number[] = [];
-          for (let i = 1; i < beats.length; i++) {
-            if (beats[i - 1].confidence > 0.3 && beats[i].confidence > 0.3) {
-              intervals.push(beats[i].start - beats[i - 1].start);
-            }
-          }
-          const avg = intervals.length ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0;
-          if (avg > 0.2 && avg < 2.0) {
-            this.beatInterval = avg;
-            this.beatPhaseJitter = 0;
-          }
-        }
+        await this.api.getAudioAnalysis(track.id);
+        // You could use analysis.bars to align downbeats precisely if you also pass playback position
       } catch {
         // ignore analysis errors
       }
@@ -271,9 +326,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private recomputeBeatSchedule() {
     const bpm = this.featuresEnabled && this.features.tempo ? this.features.tempo : 120;
     this.beatInterval = 60 / Math.max(1, bpm);
-    // next beat aligned with current time + jitter
     const now = this.lastT ? this.lastT / 1000 : 0;
-    this.nextBeatTime = now + (this.beatPhaseJitter || 0);
+    this.nextBeatTime = now + this.beatInterval;
   }
 
   private setRenderScale(s: number) {
@@ -297,6 +351,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.lastT = t;
       this.render(dt, t / 1000);
 
+      // FPS
       this.fpsAccum += dt; this.fpsCount++;
       if (this.fpsAccum >= 0.5) {
         const fps = this.fpsCount / this.fpsAccum;
@@ -309,7 +364,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private render(dt: number, time: number) {
+    // Beats
     this.updateBeat(time);
+
+    // Key hue palette morph
+    this.updateKeyPalette(dt);
 
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -319,8 +378,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const curName = this.sceneName;
     const nextName = this.nextSceneName;
 
+    // Draw current scene into buffer A
     this.drawScene(this.bufCtxA, bw, bh, time, dt, curName);
 
+    // Crossfade if needed
     if (this.crossfadeT > 0 && nextName) {
       this.drawScene(this.bufCtxB, bw, bh, time, dt, nextName);
       const t = 1 - this.crossfadeT / this.crossfadeDur;
@@ -342,6 +403,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.ctx.drawImage(this.bufferA, 0, 0, W, H);
     }
 
+    // Confetti overlay
+    this.drawConfetti(this.ctx, W, H, dt);
+
+    // Scene label
     this.ctx.fillStyle = '#ffffff88';
     this.ctx.font = '12px system-ui, sans-serif';
     this.ctx.textAlign = 'right';
@@ -354,16 +419,53 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.beatActive = true;
       this.lastBeatTime = this.nextBeatTime;
       this.nextBeatTime += this.beatInterval;
+      this.beatCount++;
 
-      // Trigger per-beat hooks
+      // Beat hooks
+      this.onBeat_Common();
+
       if (this.sceneName === 'Beat Ball' || this.nextSceneName === 'Beat Ball') {
         this.onBeat_Ball();
       }
       if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') {
         this.onBeat_LyricLines();
       }
+
+      // Downbeat every N beats
+      if (this.beatCount % this.downbeatEvery === 1) {
+        this.onDownbeat();
+      }
     }
   }
+
+  private onBeat_Common() {
+    // Small confetti burst every beat
+    if (this.beatConfettiEnabled) {
+      const energy = this.features.energy ?? 0.5;
+      const count = Math.round(8 + energy * 14);
+      this.spawnConfetti(count, 0.5);
+    }
+  }
+
+  private onDownbeat() {
+    // Extra confetti on downbeat
+    if (this.beatConfettiEnabled) {
+      const energy = this.features.energy ?? 0.5;
+      const count = Math.round(18 + energy * 30);
+      this.spawnConfetti(count, 1.0);
+    }
+
+    // Auto scene switching only when current mode is Auto
+    if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
+      const choices = ['Particles', 'Tunnel', 'Terrain', 'Typography', 'Lyric Lines', 'Beat Ball'];
+      const current = this.sceneName;
+      // pick a scene different from what we'll become (we’re in Auto)
+      const pick = choices[(Math.random() * choices.length) | 0];
+      this.requestScene(pick);
+    }
+  }
+
+  // Scenes
 
   private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
     switch (name) {
@@ -392,178 +494,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // New scene: Lyric Lines
-  private drawLyricLines(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    if (!this.textField || this.lastTextW !== w || this.lastTextH !== h) {
-      this.prepareTextField(this.lyricText, w, h);
-    }
-    if (this.lyricAgents.length === 0 && this.textPoints.length) {
-      this.initLyricAgents();
-    }
-
-    // background fade
-    ctx.fillStyle = 'rgba(0,0,0,0.1)';
-    ctx.fillRect(0, 0, w, h);
-
-    // move agents toward their targets
-    const targetPts = this.textPoints;
-    const stiffness = this.beatActive ? 8 : 4;
-    const damping = 0.86;
-    const noise = this.reduceMotion ? 0.1 : 0.25;
-
-    for (const a of this.lyricAgents) {
-      const t = targetPts[a.target];
-      if (t) {
-        const dx = t.x - a.x;
-        const dy = t.y - a.y;
-        a.vx += (dx * stiffness) * dt + (Math.random() - 0.5) * noise;
-        a.vy += (dy * stiffness) * dt + (Math.random() - 0.5) * noise;
-      } else {
-        a.vx += (Math.random() - 0.5) * noise;
-        a.vy += (Math.random() - 0.5) * noise;
-      }
-      a.vx *= damping;
-      a.vy *= damping;
-      a.x += a.vx;
-      a.y += a.vy;
-    }
-
-    // connect agents into flowing lines sorted by x
-    const sorted = this.lyricAgents.slice().sort((p, q) => p.x - q.x);
-    ctx.lineWidth = this.beatActive ? 1.8 : 1.2;
-    ctx.strokeStyle = this.palette.colors[0] || this.palette.dominant;
-    ctx.globalAlpha = 0.95;
-    ctx.beginPath();
-    for (let i = 0; i < sorted.length; i++) {
-      const p = sorted[i];
-      if (i === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-
-  private onBeat_LyricLines() {
-    // Reassign some agent targets for a ripple effect
-    if (!this.textPoints.length) return;
-    const count = Math.floor(this.lyricAgents.length * 0.08);
-    for (let i = 0; i < count; i++) {
-      const idx = (Math.random() * this.lyricAgents.length) | 0;
-      this.lyricAgents[idx].target = (Math.random() * this.textPoints.length) | 0;
-    }
-  }
-
-  private prepareTextField(text: string, w: number, h: number) {
-    this.lastTextW = w; this.lastTextH = h;
-    const sf = Math.min(w * 0.8, h * 0.32);
-    if (!this.textField) this.textField = document.createElement('canvas');
-    this.textField.width = w; this.textField.height = h;
-    const tctx = this.textField.getContext('2d')!;
-    tctx.clearRect(0, 0, w, h);
-    tctx.fillStyle = '#fff';
-    tctx.textAlign = 'center';
-    tctx.textBaseline = 'middle';
-    tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
-    tctx.fillText(text || 'DWDW', w / 2, h / 2);
-
-    // sample points from text bitmap
-    const img = tctx.getImageData(0, 0, w, h).data;
-    const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
-    const pts: Array<{ x: number; y: number }> = [];
-    for (let y = 0; y < h; y += step) {
-      for (let x = 0; x < w; x += step) {
-        const i = (y * w + x) * 4 + 3; // alpha
-        if (img[i] > 32) {
-          pts.push({ x, y });
-        }
-      }
-    }
-    // down-sample to a manageable number
-    const maxPts = 900;
-    this.textPoints = pts.length > maxPts
-      ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts)
-      : pts;
-
-    // reset agents (will be re-initialized)
-    this.lyricAgents = [];
-  }
-
-  private initLyricAgents() {
-    const n = Math.min(900, this.textPoints.length);
-    this.lyricAgents = new Array(n).fill(0).map(() => {
-      const target = (Math.random() * this.textPoints.length) | 0;
-      return {
-        x: Math.random() * this.bufferA.width,
-        y: Math.random() * this.bufferA.height,
-        vx: 0, vy: 0,
-        target
-      };
-    });
-  }
-
-  // New scene: Beat Ball
-  private drawBeatBall(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // background
-    const grad = ctx.createLinearGradient(0, 0, w, h);
-    grad.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
-    grad.addColorStop(1, this.palette.colors.at(-1) || this.palette.secondary);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
-
-    // move ball
-    const speedScale = 0.6 + (this.features.energy ?? 0.5) * 0.9;
-    const spd = this.ball.speed * speedScale * (this.reduceMotion ? 0.6 : 1);
-    this.ball.x += this.ball.vx * spd * dt;
-    this.ball.y += this.ball.vy * spd * dt;
-
-    // bounce on walls
-    const r = this.ball.radius;
-    let bounced = false;
-    if (this.ball.x < r) { this.ball.x = r; this.ball.vx = Math.abs(this.ball.vx); bounced = true; }
-    else if (this.ball.x > w - r) { this.ball.x = w - r; this.ball.vx = -Math.abs(this.ball.vx); bounced = true; }
-    if (this.ball.y < r) { this.ball.y = r; this.ball.vy = Math.abs(this.ball.vy); bounced = true; }
-    else if (this.ball.y > h - r) { this.ball.y = h - r; this.ball.vy = -Math.abs(this.ball.vy); bounced = true; }
-
-    // draw ball with beat pulse
-    const sinceBeat = this.lastBeatTime < 0 ? 999 : (time - this.lastBeatTime);
-    const pulse = Math.max(0, 1 - sinceBeat * 6); // quick decay after beat
-    const size = r * (1 + 0.25 * pulse);
-    const hue = (this.ball.hue + (this.features.danceability ?? 0.5) * 90) % 360;
-
-    ctx.shadowBlur = 30 * (0.3 + pulse);
-    ctx.shadowColor = `hsla(${hue}, 90%, 60%, 0.9)`;
-    ctx.fillStyle = `hsla(${hue}, 90%, ${bounced ? 70 : 60}%, 0.95)`;
-    ctx.beginPath();
-    ctx.arc(this.ball.x, this.ball.y, size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // trailing streaks
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 60%, 0.35)`;
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(this.ball.x, this.ball.y);
-    ctx.lineTo(this.ball.x - this.ball.vx * 80, this.ball.y - this.ball.vy * 80);
-    ctx.stroke();
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  private onBeat_Ball() {
-    // change direction randomly but keep normalized velocity
-    this.randomizeBallDirection();
-    // also shift color
-    this.ball.hue = (this.ball.hue + 47) % 360;
-  }
-
-  private randomizeBallDirection() {
-    const ang = Math.random() * Math.PI * 2;
-    this.ball.vx = Math.cos(ang);
-    this.ball.vy = Math.sin(ang);
-  }
-
-  // Existing scenes
-
   private drawAuto(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     const energy = this.features.energy ?? 0.5;
     const bpm = this.features.tempo ?? 120;
@@ -578,10 +508,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const count = this.reduceMotion ? 6 : 16;
     for (let i = 0; i < count; i++) {
-      const t = time * (0.2 + (i % 5) * 0.07) + i;
-      const x = (Math.sin(t) * 0.5 + 0.5) * w;
-      const y = (Math.cos(t * 0.9) * 0.5 + 0.5) * h;
-      const r = (Math.sin(t * 1.3) * 0.35 + 0.65) * Math.min(w, h) * 0.04;
+      const tt = time * (0.2 + (i % 5) * 0.07) + i;
+      const x = (Math.sin(tt) * 0.5 + 0.5) * w;
+      const y = (Math.cos(tt * 0.9) * 0.5 + 0.5) * h;
+      const r = (Math.sin(tt * 1.3) * 0.35 + 0.65) * Math.min(w, h) * 0.04;
 
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -677,8 +607,216 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.restore();
   }
 
-  // Panels
+  // Lyric Lines
+  private drawLyricLines(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    if (!this.textField || this.lastTextW !== w || this.lastTextH !== h) {
+      this.prepareTextField(this.lyricText, w, h);
+    }
+    if (this.lyricAgents.length === 0 && this.textPoints.length) {
+      this.initLyricAgents();
+    }
 
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(0, 0, w, h);
+
+    const targetPts = this.textPoints;
+    const stiffness = this.beatActive ? 8 : 4;
+    const damping = 0.86;
+    const noise = this.reduceMotion ? 0.1 : 0.25;
+
+    for (const a of this.lyricAgents) {
+      const t = targetPts[a.target];
+      if (t) {
+        const dx = t.x - a.x;
+        const dy = t.y - a.y;
+        a.vx += (dx * stiffness) * dt + (Math.random() - 0.5) * noise;
+        a.vy += (dy * stiffness) * dt + (Math.random() - 0.5) * noise;
+      } else {
+        a.vx += (Math.random() - 0.5) * noise;
+        a.vy += (Math.random() - 0.5) * noise;
+      }
+      a.vx *= damping;
+      a.vy *= damping;
+      a.x += a.vx;
+      a.y += a.vy;
+    }
+
+    const sorted = this.lyricAgents.slice().sort((p, q) => p.x - q.x);
+    ctx.lineWidth = this.beatActive ? 1.8 : 1.2;
+    ctx.strokeStyle = this.palette.colors[0] || this.palette.dominant;
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  private onBeat_LyricLines() {
+    if (!this.textPoints.length) return;
+    const count = Math.floor(this.lyricAgents.length * 0.08);
+    for (let i = 0; i < count; i++) {
+      const idx = (Math.random() * this.lyricAgents.length) | 0;
+      this.lyricAgents[idx].target = (Math.random() * this.textPoints.length) | 0;
+    }
+  }
+
+  private prepareTextField(text: string, w: number, h: number) {
+    this.lastTextW = w; this.lastTextH = h;
+    const sf = Math.min(w * 0.8, h * 0.32);
+    if (!this.textField) this.textField = document.createElement('canvas');
+    this.textField.width = w; this.textField.height = h;
+    const tctx = this.textField.getContext('2d')!;
+    tctx.clearRect(0, 0, w, h);
+    tctx.fillStyle = '#fff';
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
+    tctx.fillText(text || 'DWDW', w / 2, h / 2);
+
+    const img = tctx.getImageData(0, 0, w, h).data;
+    const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let yy = 0; yy < h; yy += step) {
+      for (let xx = 0; xx < w; xx += step) {
+        const i = (yy * w + xx) * 4 + 3;
+        if (img[i] > 32) pts.push({ x: xx, y: yy });
+      }
+    }
+    const maxPts = 900;
+    this.textPoints = pts.length > maxPts ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts) : pts;
+    this.lyricAgents = [];
+  }
+
+  private initLyricAgents() {
+    const n = Math.min(900, this.textPoints.length);
+    this.lyricAgents = new Array(n).fill(0).map(() => {
+      const target = (Math.random() * this.textPoints.length) | 0;
+      return { x: Math.random() * this.bufferA.width, y: Math.random() * this.bufferA.height, vx: 0, vy: 0, target };
+    });
+  }
+
+  // Beat Ball
+  private drawBeatBall(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
+    grad.addColorStop(1, this.palette.colors.at(-1) || this.palette.secondary);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const speedScale = 0.6 + (this.features.energy ?? 0.5) * 0.9;
+    const spd = this.ball.speed * speedScale * (this.reduceMotion ? 0.6 : 1);
+    this.ball.x += this.ball.vx * spd * dt;
+    this.ball.y += this.ball.vy * spd * dt;
+
+    const r = this.ball.radius;
+    let bounced = false;
+    if (this.ball.x < r) { this.ball.x = r; this.ball.vx = Math.abs(this.ball.vx); bounced = true; }
+    else if (this.ball.x > w - r) { this.ball.x = w - r; this.ball.vx = -Math.abs(this.ball.vx); bounced = true; }
+    if (this.ball.y < r) { this.ball.y = r; this.ball.vy = Math.abs(this.ball.vy); bounced = true; }
+    else if (this.ball.y > h - r) { this.ball.y = h - r; this.ball.vy = -Math.abs(this.ball.vy); bounced = true; }
+
+    const sinceBeat = this.lastBeatTime < 0 ? 999 : (time - this.lastBeatTime);
+    const pulse = Math.max(0, 1 - sinceBeat * 6);
+    const size = r * (1 + 0.25 * pulse);
+    const hue = (this.ball.hue + (this.features.danceability ?? 0.5) * 90) % 360;
+
+    ctx.shadowBlur = 30 * (0.3 + pulse);
+    ctx.shadowColor = `hsla(${hue}, 90%, 60%, 0.9)`;
+    ctx.fillStyle = `hsla(${hue}, 90%, ${bounced ? 70 : 60}%, 0.95)`;
+    ctx.beginPath();
+    ctx.arc(this.ball.x, this.ball.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 90%, 60%, 0.35)`;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(this.ball.x, this.ball.y);
+    ctx.lineTo(this.ball.x - this.ball.vx * 80, this.ball.y - this.ball.vy * 80);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private onBeat_Ball() {
+    this.randomizeBallDirection();
+    this.ball.hue = (this.ball.hue + 47) % 360;
+  }
+  private randomizeBallDirection() {
+    const ang = Math.random() * Math.PI * 2;
+    this.ball.vx = Math.cos(ang);
+    this.ball.vy = Math.sin(ang);
+  }
+
+  // Confetti overlay
+  private spawnConfetti(count: number, power: number) {
+    const W = this.canvas.width, H = this.canvas.height;
+    const baseHue =
+      this.keyHueTarget != null && this.keyColorEnabled
+        ? this.keyHueTarget
+        : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const valence = this.features.valence ?? 0.5;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = (80 + Math.random() * 240) * (0.8 + power);
+      const size = 2 + Math.random() * 4 * (1 + power);
+      const hue = (baseHue + (Math.random() - 0.5) * 60 + valence * 60) % 360;
+      this.confetti.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 40,
+        life: 0,
+        max: 0.8 + Math.random() * 1.2,
+        hue, size
+      });
+    }
+  }
+
+  private drawConfetti(ctx: CanvasRenderingContext2D, W: number, H: number, dt: number) {
+    if (!this.confetti.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = this.confetti.length - 1; i >= 0; i--) {
+      const p = this.confetti[i];
+      p.life += dt;
+      if (p.life >= p.max) { this.confetti.splice(i, 1); continue; }
+      const t = p.life / p.max;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt + 60 * dt; // gravity
+      p.vx *= 0.98; p.vy *= 0.98;
+
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = `hsla(${p.hue}, 90%, 60%, ${0.9 * (1 - t)})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * (1 + 0.5 * (1 - t)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // Key color morph
+  private updateKeyPalette(dt: number) {
+    if (!this.keyColorEnabled || this.keyHueTarget == null) return;
+    // ease current hue toward target
+    const delta = angularDelta(this.keyHueCurrent, this.keyHueTarget);
+    this.keyHueCurrent = (this.keyHueCurrent + delta * Math.min(1, dt * 3)) % 360;
+
+    // mix amount depends on mode (minor = subtler)
+    const mode = this.features.mode ?? 1;
+    const mixAmt = mode === 1 ? 0.6 : 0.4;
+
+    // produce a shifted palette from base and blend
+    const shifted = shiftPaletteHue(this.basePalette, this.keyHueCurrent);
+    this.palette = blendPalettes(this.basePalette, shifted, mixAmt);
+  }
+
+  // Panels infra
   private panelsRoot(): HTMLDivElement {
     const root = document.getElementById('panels') as HTMLDivElement | null;
     if (!root) {
@@ -689,7 +827,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     return root;
   }
-
   private mountPanel(id: string, title: string, render: (body: HTMLDivElement) => void) {
     const root = this.panelsRoot();
     let panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
@@ -700,7 +837,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       panel.style.position = 'absolute';
       panel.style.right = '12px';
       panel.style.top = id === 'quality' ? '56px' : '128px';
-      panel.style.minWidth = '220px';
+      panel.style.minWidth = '240px';
       panel.style.zIndex = '1000';
       panel.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
@@ -714,7 +851,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     render(panel.querySelector<HTMLDivElement>('.body')!);
   }
-
   private togglePanel(id: string, force?: boolean) {
     const root = this.panelsRoot();
     const panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
@@ -723,11 +859,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     panel.classList.toggle('hidden', !show);
   }
 
-  // Utils
+  // Color helpers
 
   private mixColor(a: string, b: string, t: number) {
-    const pa = this.hexToRgb(a);
-    const pb = this.hexToRgb(b);
+    const pa = hexToRgb(a);
+    const pb = hexToRgb(b);
     if (!pa || !pb) return a;
     const c = {
       r: Math.round(pa.r + (pb.r - pa.r) * t),
@@ -736,12 +872,89 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     };
     return `rgb(${c.r}, ${c.g}, ${c.b})`;
   }
+}
 
-  private hexToRgb(hex: string) {
-    const m = hex.trim().replace('#', '');
-    const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
-    const n = parseInt(s, 16);
-    if (Number.isNaN(n) || (s.length !== 6)) return null;
-    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+// Color utils
+
+function hexToRgb(hex: string) {
+  const m = hex.trim().replace('#', '');
+  const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
+  const n = parseInt(s, 16);
+  if (Number.isNaN(n) || (s.length !== 6)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
+  const h = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
   }
+  return { h, s, l };
+}
+function hslToRgb(h: number, s: number, l: number) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s));
+  l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+  else { r1 = c; g1 = 0; b1 = x; }
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255)
+  };
+}
+function shiftHueHex(hex: string, hue: number) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const { s, l } = rgbToHsl(rgb);
+  const rgb2 = hslToRgb(hue, s, l);
+  return rgbToHex(rgb2);
+}
+function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
+  return {
+    dominant: shiftHueHex(p.dominant, hue),
+    secondary: shiftHueHex(p.secondary, hue),
+    colors: p.colors.map(c => shiftHueHex(c, hue))
+  };
+}
+function blendHex(a: string, b: string, t: number) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  if (!A || !B) return a;
+  return rgbToHex({
+    r: Math.round(A.r + (B.r - A.r) * t),
+    g: Math.round(A.g + (B.g - A.g) * t),
+    b: Math.round(A.b + (B.b - A.b) * t)
+  });
+}
+function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
+  return {
+    dominant: blendHex(a.dominant, b.dominant, t),
+    secondary: blendHex(a.secondary, b.secondary, t),
+    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
+  };
+}
+function angularDelta(current: number, target: number) {
+  let d = ((target - current + 540) % 360) - 180;
+  return d;
 }
