@@ -2271,43 +2271,39 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Voronoi core (fixed and complete)
   private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
+  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+  const cells: SGCell[] = [];
 
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
+  for (let i = 0; i < sites.length; i++) {
+    const si = sites[i];
+    let poly = B.slice();
 
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
+    for (let j = 0; j < sites.length; j++) {
+      if (i === j) continue;
+      const sj = sites[j];
 
-        // Perpendicular bisector half-plane between si and sj
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
+      const mx = (si.x + sj.x) / 2;
+      const my = (si.y + sj.y) / 2;
+      const sx = sj.x - si.x;
+      const sy = sj.y - si.y;
 
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (poly.length === 0) break;
-      }
-
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-
-        let radius = 0;
-        for (const p of poly) {
-          const d = Math.hypot(p.x - cx, p.y - cy);
-          if (d > radius) radius = d;
-        }
-
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
+      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+      if (poly.length === 0) break;
     }
 
-    return cells;
+    if (poly.length >= 3) {
+      let cx = 0, cy = 0;
+      for (const p of poly) { cx += p.x; cy += p.y; }
+       cx /= poly.length; cy /= poly.length;
+
+       let radius = 0;
+       for (const p of poly) radius = Math.max(radius, Math.hypot(p.x - cx, p.y - cy));
+
+       cells.push({ pts: poly, cx, cy, color: si.color, radius });
+     }
+   }
+
+   return cells;
   }
 
   // Lyrics: fetch + timing + UI helpers
