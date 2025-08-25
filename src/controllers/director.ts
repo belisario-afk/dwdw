@@ -879,9 +879,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       case 'Stained Glass Voronoi':
         this.drawStainedGlassVoronoi(ctx, w, h, time, dt);
         break;
-      case 'Emo Slashes':
-        this.drawEmoSlashes(ctx, w, h, time, dt);
-        break;
+       case 'Emo Slashes':
+	this.drawEmoSlashes(ctx, w, h, time, dt); 
+	break;
       case 'Particles':
         this.drawParticles(ctx, w, h, time, dt);
         break;

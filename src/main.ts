@@ -12,6 +12,7 @@ declare global {
   interface Window {
     onSpotifyWebPlaybackSDKReady?: () => void;
     Spotify: any;
+    director?: VisualDirector; // debug hook
   }
 }
 
@@ -43,8 +44,40 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const director = new VisualDirector(api);
   const vj = new VJ(director, player);
 
+  // Expose for quick console testing: window.director.requestScene('Emo Slashes')
+  (window as any).director = director;
+
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
+
+  // Wire scene picker and a few top‑level buttons so new scenes are selectable immediately from UI
+  const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
+  if (sceneSelect) {
+    sceneSelect.addEventListener('change', (e) => {
+      const val = (e.target as HTMLSelectElement).value;
+      director.requestScene(val);
+    });
+  }
+
+  const btnCrossfade = document.getElementById('btn-crossfade');
+  btnCrossfade?.addEventListener('click', () => director.crossfadeNow());
+
+  const btnQuality = document.getElementById('btn-quality');
+  btnQuality?.addEventListener('click', () => director.toggleQualityPanel());
+
+  const btnAccess = document.getElementById('btn-accessibility');
+  btnAccess?.addEventListener('click', () => director.toggleAccessibilityPanel());
+
+  const btnFullscreen = document.getElementById('btn-fullscreen');
+  btnFullscreen?.addEventListener('click', async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  });
 
   // Screensaver
   let idleTimer: any = null;
@@ -53,7 +86,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     ui.setScreensaver(false);
     idleTimer = setTimeout(() => ui.setScreensaver(true), 30000);
   }
-  ['mousemove', 'keydown', 'pointerdown'].forEach(ev =>
+  ['mousemove', 'keydown', 'pointerdown'].forEach((ev) =>
     window.addEventListener(ev, onActive, { passive: true })
   );
   onActive();
@@ -99,14 +132,14 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
             const palette = await Palette.fromImageURL(img);
             ui.applyPalette(palette);
             director.setPalette(palette);
-            // New: hand album art URL to director for Flow Field scene
+            // Provide album art to VisualDirector (Flow Field, Stained Glass sampling, etc.)
             director.setAlbumArt(img).catch(() => {});
           } catch (e) {
             console.warn('Palette extraction failed', e);
           }
         }
 
-        // Inform director of new track (will fetch features if enabled)
+        // Inform director of new track (fetches audio features if enabled)
         await director.onTrack(track).catch(() => {});
       }
     }
