@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>dwdw — Spotify VJ</title>
+    <meta name="theme-color" content="#111111" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
+    <style>
+      :root {
+        --bg: #0b0b0b;
+        --fg: #e8e8e8;
+        --muted: #999;
+        --accent: #22cc88;
+        --accent-2: #cc2288;
+        --panel: #151515cc;
+        --panel-border: #2a2a2a;
+        --danger: #ff4d4f;
+        --warn: #ffaa00;
+        --success: #35d07f;
+        --album-0: #222;
+        --album-1: #444;
+        --album-2: #666;
+        --album-3: #888;
+      }
+      html, body, #app {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      }
+      .hidden { display: none !important; }
+      #canvas-host { position: absolute; inset: 0; }
+      #ui { position: absolute; inset: 0; pointer-events: none; }
+      .panel {
+        pointer-events: auto;
+        position: absolute;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        backdrop-filter: blur(8px) saturate(120%);
+        -webkit-backdrop-filter: blur(8px) saturate(120%);
+        padding: 10px 12px;
+        color: var(--fg);
+      }
+      #topbar {
+        top: 12px; left: 12px; right: 12px;
+        display: flex; gap: 8px; align-items: center; background: var(--panel);
+      }
+      #bottombar {
+        left: 12px; right: 12px; bottom: 12px;
+        display: flex; gap: 8px; align-items: center; background: var(--panel);
+      }
+      button, select, input[type="range"] {
+        pointer-events: auto;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: #1a1a1a; color: var(--fg);
+        padding: 8px 10px;
+      }
+      button:hover { background: #222; }
+      .spacer { flex: 1; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      .col { display: flex; flex-direction: column; gap: 6px; }
+      .badge { background: #00000066; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--panel-border); font-size: 11px; }
+      #screensaver { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #0008, #000c); }
+      #screensaver.active { display: flex; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+    <!-- Prevent SDK error if our app hasn't run yet -->
+    <script>
+      window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function(){};
+    </script>
+    <script async src="https://sdk.scdn.co/spotify-player.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div id="canvas-host"></div>
+      <div id="ui">
+        <div id="topbar" class="panel">
+          <div id="auth-area" class="row">
+            <button id="btn-login">Login with Spotify</button>
+            <button id="btn-logout" class="hidden">Logout</button>
+            <span id="user-label" class="badge"></span>
+          </div>
+          <div class="spacer"></div>
+          <div class="row">
+            <span class="badge" id="gpu-label">GPU: …</span>
+            <span class="badge" id="fps-label">FPS: …</span>
+            <button id="btn-fullscreen" title="Fullscreen">⤢</button>
+          </div>
+        </div>
+        <div id="bottombar" class="panel">
+          <div class="row" id="transport">
+            <button id="btn-prev">⏮</button>
+            <button id="btn-play">▶</button>
+            <button id="btn-pause" class="hidden">⏸</button>
+            <input id="seek" type="range" min="0" max="1000" value="0" step="1" style="width: 240px;" />
+            <span id="time-label" class="badge">0:00 / 0:00</span>
+            <input id="volume" type="range" min="0" max="100" value="80" step="1" title="Volume" />
+            <select id="device-picker" title="Device"></select>
+          </div>
+          <div class="spacer"></div>
+          <div class="row" id="scene-picker">
+            <select id="scene-select" title="Scene">
+              <option value="Auto">Auto</option>
+              <option value="Particles">Particles</option>
+              <option value="Fluid">Fluid</option>
+              <option value="Tunnel">Tunnel</option>
+              <option value="Terrain">Terrain</option>
+              <option value="Typography">Typography</option>
+            </select>
+            <button id="btn-crossfade">Crossfade</button>
+            <button id="btn-record">● Rec</button>
+            <button id="btn-vj">VJ</button>
+            <button id="btn-quality">Quality</button>
+            <button id="btn-accessibility">Accessibility</button>
+          </div>
+        </div>
+        <div id="panels"></div>
+        <div id="screensaver"><div class="panel">Screensaver — press any key</div></div>
+      </div>
+    </div>
+    <!-- Use relative path for dev; production build will rewrite to /dwdw/assets/*.js -->
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

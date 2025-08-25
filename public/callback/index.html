@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Spotify Callback</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      // Forward OAuth params into the SPA's hash route at /dwdw/
+      (function () {
+        var base = '/dwdw/#/callback';
+        var qs = window.location.search || '';
+        window.location.replace(base + qs);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

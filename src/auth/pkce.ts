@@ -1,0 +1,182 @@
+import { Emitter } from '@utils/emitter';
+
+type AuthOptions = {
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+}
+
+type TokenResponse = {
+  access_token: string;
+  token_type: 'Bearer';
+  scope: string;
+  expires_in: number;
+  refresh_token?: string;
+};
+
+type TokenSet = {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+  scope: string[];
+};
+
+export class Auth extends Emitter<{
+  'tokens': TokenSet | null;
+}> {
+  private opts: AuthOptions;
+  private tokens: TokenSet | null = null;
+  private storageKey = 'dwdw.tokens';
+  private verifierKey = 'dwdw.pkce.verifier';
+  private stateKey = 'dwdw.pkce.state';
+
+  constructor(opts: AuthOptions) {
+    super();
+    this.opts = opts;
+  }
+
+  getAccessToken(): string | null {
+    if (!this.tokens) return null;
+    if (Date.now() > this.tokens.expiresAt - 60000) {
+      return null;
+    }
+    return this.tokens.accessToken;
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.getAccessToken();
+  }
+
+  async restore(): Promise<boolean> {
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as TokenSet;
+      this.tokens = parsed;
+      if (Date.now() > parsed.expiresAt - 60000) {
+        if (parsed.refreshToken) {
+          await this.refresh();
+          return true;
+        }
+        return false;
+      }
+      this.emit('tokens', this.tokens);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async login() {
+    const verifier = this.generateCodeVerifier();
+    const challenge = await this.generateCodeChallenge(verifier);
+    const state = crypto.randomUUID();
+
+    sessionStorage.setItem(this.verifierKey, verifier);
+    sessionStorage.setItem(this.stateKey, state);
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.opts.clientId,
+      scope: this.opts.scopes.join(' '),
+      redirect_uri: this.opts.redirectUri,
+      code_challenge_method: 'S256',
+      code_challenge: challenge,
+      state
+    });
+    location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
+  }
+
+  async logout() {
+    this.tokens = null;
+    localStorage.removeItem(this.storageKey);
+    this.emit('tokens', null);
+  }
+
+  async handleRedirectCallback(): Promise<void> {
+    const url = new URL(location.href);
+    const params = url.searchParams.size
+      ? url.searchParams
+      : new URLSearchParams(url.hash.slice(2)); // support hash callback
+    const code = params.get('code');
+    const state = params.get('state');
+    const storedState = sessionStorage.getItem(this.stateKey);
+    const verifier = sessionStorage.getItem(this.verifierKey);
+
+    if (!code || !state || !verifier || state !== storedState) {
+      throw new Error('Invalid OAuth callback.');
+    }
+
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: this.opts.redirectUri,
+      client_id: this.opts.clientId,
+      code_verifier: verifier
+    });
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      throw new Error('Token exchange failed: ' + t);
+    }
+    const data = (await resp.json()) as TokenResponse;
+    this.tokens = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+      scope: data.scope.split(' ')
+    };
+    localStorage.setItem(this.storageKey, JSON.stringify(this.tokens));
+    sessionStorage.removeItem(this.verifierKey);
+    sessionStorage.removeItem(this.stateKey);
+    this.emit('tokens', this.tokens);
+  }
+
+  async refresh(): Promise<void> {
+    if (!this.tokens?.refreshToken) throw new Error('No refresh token');
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: this.tokens.refreshToken,
+      client_id: this.opts.clientId
+    });
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    if (!resp.ok) throw new Error('Refresh failed');
+    const data = (await resp.json()) as TokenResponse;
+    this.tokens = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || this.tokens.refreshToken,
+      expiresAt: Date.now() + data.expires_in * 1000,
+      scope: data.scope.split(' ')
+    };
+    localStorage.setItem(this.storageKey, JSON.stringify(this.tokens));
+    this.emit('tokens', this.tokens);
+  }
+
+  private generateCodeVerifier(): string {
+    const arr = new Uint8Array(64);
+    crypto.getRandomValues(arr);
+    return base64UrlEncode(arr);
+    function base64UrlEncode(bytes: Uint8Array): string {
+      let str = '';
+      for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+  }
+
+  private async generateCodeChallenge(verifier: string): Promise<string> {
+    const data = new TextEncoder().encode(verifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const bytes = new Uint8Array(digest);
+    let str = '';
+    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+}
