@@ -359,6 +359,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.crossfadeT = Math.max(this.crossfadeT, this.crossfadeDur * 0.6);
   }
 
+  // Panels: make these robust without relying on external CSS
   toggleQualityPanel() {
     this.mountPanel('quality', 'Quality', (panel) => {
       panel.innerHTML = `
@@ -385,34 +386,36 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   toggleAccessibilityPanel() {
     this.mountPanel('access', 'Accessibility', (panel) => {
       panel.innerHTML = `
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
-          <input id="reduce-motion" type="checkbox" ${this.reduceMotion ? 'checked' : ''} />
-          <span>Reduce motion</span>
-        </label>
+        <div style="display:flex;flex-direction:column;gap:10px;min-width:280px;">
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="reduce-motion" type="checkbox" ${this.reduceMotion ? 'checked' : ''} />
+            <span>Reduce motion</span>
+          </label>
 
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
-          <input id="audio-reactive" type="checkbox" ${this.featuresEnabled ? 'checked' : ''} />
-          <span>Audio reactive effects</span>
-        </label>
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="audio-reactive" type="checkbox" ${this.featuresEnabled ? 'checked' : ''} />
+            <span>Audio reactive effects</span>
+          </label>
 
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
-          <input id="key-color" type="checkbox" ${this.keyColorEnabled ? 'checked' : ''} />
-          <span>Key color sync</span>
-        </label>
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="key-color" type="checkbox" ${this.keyColorEnabled ? 'checked' : ''} />
+            <span>Key color sync</span>
+          </label>
 
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
-          <input id="auto-scene" type="checkbox" ${this.autoSceneOnDownbeat ? 'checked' : ''} />
-          <span>Downbeat scene switching (Auto scene)</span>
-        </label>
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="auto-scene" type="checkbox" ${this.autoSceneOnDownbeat ? 'checked' : ''} />
+            <span>Downbeat scene switching (Auto scene)</span>
+          </label>
 
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px;">
-          <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
-          <span>Beat confetti</span>
-        </label>
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="beat-confetti" type="checkbox" ${this.beatConfettiEnabled ? 'checked' : ''} />
+            <span>Beat confetti</span>
+          </label>
 
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-          <button id="open-flow-panel">Configure Flow Field…</button>
-          <button id="open-lyrics-panel">Lyrics…</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+            <button id="open-flow-panel">Configure Flow Field…</button>
+            <button id="open-lyrics-panel">Lyrics…</button>
+          </div>
         </div>
       `;
       panel.querySelector<HTMLInputElement>('#reduce-motion')!
@@ -464,9 +467,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const s = this.flowSettings;
       panel.innerHTML = `
         <div style="display:flex;gap:8px;flex-direction:column;min-width:260px;">
-          <label>Particles: <input id="ff-count" type="range" min="100" max="2000" step="50" value="${s.particleCount}"><span id="ff-count-val">${s.particleCount}</span></label>
-          <label>Speed: <input id="ff-speed" type="range" min="10" max="120" step="1" value="${s.speed}"><span id="ff-speed-val">${s.speed}</span></label>
-          <label>Trail width: <input id="ff-width" type="range" min="0.5" max="4" step="0.1" value="${s.lineWidth}"><span id="ff-width-val">${s.lineWidth.toFixed(1)}</span></label>
+          <label>Particles: <input id="ff-count" type="range" min="100" max="2000" step="50" value="${s.particleCount}"> <span id="ff-count-val">${s.particleCount}</span></label>
+          <label>Speed: <input id="ff-speed" type="range" min="10" max="120" step="1" value="${s.speed}"> <span id="ff-speed-val">${s.speed}</span></label>
+          <label>Trail width: <input id="ff-width" type="range" min="0.5" max="4" step="0.1" value="${s.lineWidth}"> <span id="ff-width-val">${s.lineWidth.toFixed(1)}</span></label>
           <label>Color mode:
             <select id="ff-color">
               <option value="palette" ${s.colorMode==='palette'?'selected':''}>Album palette</option>
@@ -480,7 +483,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           </label>
 
           <label>Swirl fallback blend:
-            <input id="ff-swirl" type="range" min="0" max="1" step="0.05" value="${s.swirlAmount}"><span id="ff-swirl-val">${s.swirlAmount.toFixed(2)}</span>
+            <input id="ff-swirl" type="range" min="0" max="1" step="0.05" value="${s.swirlAmount}"> <span id="ff-swirl-val">${s.swirlAmount.toFixed(2)}</span>
           </label>
 
           <fieldset style="border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;">
@@ -572,12 +575,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
             <span id="lyr-size-val">${this.lyricsOverlayScale.toFixed(2)}x</span>
           </label>
 
-          <div style="font-size:12px;opacity:.8;">
-            Provider: LRCLIB (synced when available). We don't scrape lyrics sites.
-          </div>
-
           <div id="lyr-status" style="font-size:12px;opacity:.9;">
-            ${this.lyrics?.lines?.length ? `Loaded ${this.lyrics.lines.length} line(s)${this.lyrics.synced ? ' (synced)' : ''}.` : 'No lyrics loaded.'}
+            ${this.lyrics?.lines?.length ? `Loaded ${this.lyrics.lines.length} line(s)${this.lyrics.synced ? ' (synced)' : ''}.` : 'No lyrics loaded. Showing track title as fallback.'}
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button id="lyr-refetch">Refetch for current track</button>
@@ -635,7 +634,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   async onTrack(track: SpotifyApi.TrackObjectFull | null) {
     if (!track) return;
 
-    // Update lyric text to "Track — Artist"
+    // Update lyric text to "Track — Artist" (fallback text)
     const artist = (track.artists && track.artists.length) ? track.artists.map(a => a.name).join(', ') : '';
     this.setLyricText(`${track.name}${artist ? ' — ' + artist : ''}`);
 
@@ -985,6 +984,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bpm = this.features.tempo ?? 120;
     const spin = time * 0.4 + (this.features.danceability ?? 0.5) * 0.5;
     ctx.clearRect(0, 0, w, h);
+    ctx.save();
     ctx.translate(w / 2, h / 2);
     ctx.rotate(spin * 0.2);
     const rings = this.reduceMotion ? 12 : 28;
@@ -999,7 +999,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.stroke();
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.restore();
     ctx.globalAlpha = 1;
   }
 
@@ -1640,7 +1640,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     return rgbToHsl(hexToRgb(col)!).h;
   }
 
-  // Neon Bars (omitted comments; logic same as before)
+  // Neon Bars
 
   private ensureNeonBars(w: number) {
     if (this.neonBars.length && Math.abs(this.neonLastLayoutW - w) < 16) return;
@@ -1678,6 +1678,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   private drawNeonBars(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     this.ensureNeonBars(w);
+
     const bg = ctx.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, '#07070a');
     bg.addColorStop(1, '#0e0e14');
@@ -1848,7 +1849,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    this.ensureStained(w, h);
+    try {
+      this.ensureStained(w, h);
+    } catch {
+      // If something blows up, draw a fallback
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, w, h);
+      return;
+    }
 
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
     bg.addColorStop(0, '#07080b');
@@ -2032,6 +2040,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+    // Background
     if (this.emoBgImg) {
       const img = this.emoBgImg;
       const cw = img.naturalWidth;
@@ -2068,6 +2077,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fillRect(0, 0, w, h);
     }
 
+    // Subtle fog
     ctx.globalAlpha = 0.12;
     const baseHueFog = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     ctx.fillStyle = `hsla(${(baseHueFog + 200) % 360}, 50%, 60%, 1)`;
@@ -2178,6 +2188,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.globalAlpha = 1;
 
+      // Gleam band
       const gleamT = this.emoHeroGleam;
       const bandX = (gleamT - 0.2) * drawW;
       ctx.globalCompositeOperation = 'source-atop';
@@ -2266,51 +2277,51 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  // Voronoi core (fixed)
+  // Voronoi core (fixed and complete)
   private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-  // Start with one big rectangle bounding box
-  const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-  const cells: SGCell[] = [];
+    // Start with one big rectangle bounding box
+    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
 
-  for (let i = 0; i < sites.length; i++) {
-    const si = sites[i];
-    let poly = B.slice();
+    for (let i = 0; i < sites.length; i++) {
+      const si = sites[i];
+      let poly = B.slice();
 
-    for (let j = 0; j < sites.length; j++) {
-      if (i === j) continue;
-      const sj = sites[j];
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const sj = sites[j];
 
-      // Perpendicular bisector half-plane between si and sj
-      const mx = (si.x + sj.x) / 2;
-      const my = (si.y + sj.y) / 2;
-      const sx = sj.x - si.x;
-      const sy = sj.y - si.y;
+        // Perpendicular bisector half-plane between si and sj
+        const mx = (si.x + sj.x) / 2;
+        const my = (si.y + sj.y) / 2;
+        const sx = sj.x - si.x;
+        const sy = sj.y - si.y;
 
-      // Clip current polygon against the half-plane
-      poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-      if (poly.length === 0) break; // fully clipped
-    }
-
-    if (poly.length) {
-      // Compute centroid and an approximate radius for effects
-      let cx = 0, cy = 0;
-      for (const p of poly) { cx += p.x; cy += p.y; }
-      cx /= poly.length; cy /= poly.length;
-
-      let radius = 0;
-      for (const p of poly) {
-        const d = Math.hypot(p.x - cx, p.y - cy);
-        if (d > radius) radius = d;
+        // Clip current polygon against the half-plane
+        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        if (poly.length === 0) break; // fully clipped
       }
 
-      cells.push({ pts: poly, cx, cy, color: si.color, radius });
+      if (poly.length >= 3) {
+        // Compute centroid and an approximate radius for effects
+        let cx = 0, cy = 0;
+        for (const p of poly) { cx += p.x; cy += p.y; }
+        cx /= poly.length; cy /= poly.length;
+
+        let radius = 0;
+        for (const p of poly) {
+          const d = Math.hypot(p.x - cx, p.y - cy);
+          if (d > radius) radius = d;
+        }
+
+        cells.push({ pts: poly, cx, cy, color: si.color, radius });
+      }
     }
+
+    return cells;
   }
 
-  return cells;
-}
-
-  // Lyrics helpers and overlay rendering are below...
+  // Lyrics: fetch + timing + UI helpers
 
   private async refetchLyricsForCurrentTrack() {
     if (!this.lastTrackId) return;
@@ -2357,8 +2368,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       }
 
       this.lyrics = state;
-      this.currentLyricIndex = -1;
+      this.currentLyricIndex = -1; // force refresh
     } catch {
+      // Fail silently; keep fallback text
       this.lyrics = null;
       this.currentLyricIndex = -1;
     }
@@ -2369,12 +2381,17 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const t = this.playbackMs / 1000;
     const lines = this.lyrics.lines;
 
+    // Binary search current line
     let lo = 0, hi = lines.length - 1, idx = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
+      if (t < lines[mid].start) {
+        hi = mid - 1;
+      } else if (t >= lines[mid].end) {
+        lo = mid + 1;
+      } else {
+        idx = mid; break;
+      }
     }
 
     if (idx !== -1 && idx !== this.currentLyricIndex) {
@@ -2385,6 +2402,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   private startPlaybackPolling() {
+    // Poll playback every 1000ms to sync lyrics timing across scenes (overlay etc)
     const tick = async () => {
       try {
         const pb = await (this.api as any).getCurrentPlaybackCached?.();
@@ -2393,15 +2411,19 @@ export class VisualDirector extends Emitter<DirectorEvents> {
           this.playbackIsPlaying = !!pb.is_playing;
           const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
 
+          // If track changed outside our onTrack flow, adopt it
           const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
           if (tr && tr.id && tr.id !== this.lastTrackId) {
             this.onTrack(tr).catch(() => {});
           }
 
+          // Keep local progress roughly in sync; allow small drift to animate smoothly
           const drift = Math.abs(ms - this.playbackMs);
           if (drift > 750) this.playbackMs = ms;
         }
-      } catch {}
+      } catch {
+        // Ignore polling errors; will try again next tick
+      }
     };
 
     if (this.pbPollTimer) clearInterval(this.pbPollTimer);
@@ -2409,33 +2431,49 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     tick().catch(() => {});
   }
 
+  // Lyrics overlay renderer (always shows fallback text if no lyrics)
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
-    if (!this.lyrics || !this.lyrics.lines.length) return;
 
-    const lines = this.lyrics.lines;
-    const t = this.playbackMs / 1000;
+    // Decide what text to show
+    let text = '';
+    let progress = 0;
 
-    let idx = this.currentLyricIndex;
-    if (idx < 0) {
-      if (t < lines[0].start) idx = 0;
-      else if (t > lines[lines.length - 1].end) idx = lines.length - 1;
-      else {
-        idx = lines.findIndex(l => t < l.end);
-        if (idx === -1) idx = lines.length - 1;
+    if (this.lyrics && this.lyrics.lines.length) {
+      const lines = this.lyrics.lines;
+      const t = this.playbackMs / 1000;
+
+      let idx = this.currentLyricIndex;
+      if (idx < 0) {
+        if (t < lines[0].start) {
+          idx = 0;
+        } else if (t > lines[lines.length - 1].end) {
+          idx = lines.length - 1;
+        } else {
+          idx = lines.findIndex(l => t < l.end);
+          if (idx === -1) idx = lines.length - 1;
+        }
       }
+
+      const line = lines[idx];
+      const raw = (line?.text || '').trim();
+      text = raw || this.lyricText || '';
+      const dur = Math.max(0.1, (line.end - line.start) || 0.1);
+      if (t >= line.start && t <= line.end) {
+        progress = Math.max(0, Math.min(1, (t - line.start) / dur));
+      } else if (t > line.end) {
+        progress = 1;
+      } else {
+        progress = 0;
+      }
+    } else {
+      text = this.lyricText || '';
+      progress = 0;
     }
 
-    const line = lines[idx];
-    const raw = (line?.text || '').trim();
-    if (!raw) return;
-    const text = raw;
+    if (!text) return;
 
-    const dur = Math.max(0.1, (line.end - line.start) || 0.1);
-    let progress = 0;
-    if (t >= line.start && t <= line.end) progress = Math.max(0, Math.min(1, (t - line.start) / dur));
-    else if (t > line.end) progress = 1;
-
+    // Style
     const minDim = Math.min(W, H);
     const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
     const margin = Math.round(minDim * 0.05);
@@ -2444,6 +2482,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     ctx.save();
 
+    // Measure text
     const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
     ctx.font = fontFace;
     ctx.textAlign = 'center';
@@ -2454,65 +2493,132 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const boxH = Math.ceil(fontPx + padY * 2);
 
     const cx = W / 2;
-    const by = H - margin;
+    const by = H - margin; // bottom baseline position
     const bx = cx - boxW / 2;
-    const topY = by - boxH + Math.round(padY * 0.35);
+    const topY = by - boxH + Math.round(padY * 0.35); // adjust so text baseline sits nicely
 
+    // Background panel (for readability)
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#000';
     roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
     ctx.fill();
     ctx.globalAlpha = 1;
 
+    // Base (unfilled) text
     ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.shadowColor = 'transparent';
     ctx.strokeText(text, cx, by);
     ctx.fillText(text, cx, by);
 
-    const baseHue =
-      this.keyHueTarget != null && this.keyColorEnabled
-        ? this.keyHueTarget
-        : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-    const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
-    const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
-    const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
-    grad.addColorStop(0, hi);
-    grad.addColorStop(1, hi2);
+    // Progress highlight (if we have synced timing)
+    if (this.lyrics?.synced) {
+      const baseHue =
+        this.keyHueTarget != null && this.keyColorEnabled
+          ? this.keyHueTarget
+          : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+      const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
+      const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
+      const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
+      grad.addColorStop(0, hi);
+      grad.addColorStop(1, hi2);
 
-    const progW = textW * progress;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(cx - textW / 2, by - fontPx, Math.max(0, progW), fontPx * 1.2);
-    ctx.clip();
+      const progW = Math.max(0, textW * progress);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx - textW / 2, by - fontPx, progW, fontPx * 1.2);
+      ctx.clip();
 
-    ctx.fillStyle = grad;
-    ctx.shadowColor = hi;
-    ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
-    ctx.fillText(text, cx, by);
+      ctx.fillStyle = grad;
+      ctx.shadowColor = hi;
+      ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
+      ctx.fillText(text, cx, by);
+      ctx.restore();
+
+      // Underline progress bar
+      const barY = by + Math.round(fontPx * 0.18);
+      const barR = Math.round(Math.min(10, fontPx * 0.18));
+      const barPad = Math.round(padX * 0.4);
+      const barW = boxW - barPad * 2;
+      const filled = Math.round(barW * progress);
+
+      // Track
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#fff';
+      roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Fill
+      const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
+      barGrad.addColorStop(0, hi);
+      barGrad.addColorStop(1, hi2);
+      ctx.fillStyle = barGrad;
+      roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
+      ctx.fill();
+    }
+
     ctx.restore();
+  }
 
-    const barY = by + Math.round(fontPx * 0.18);
-    const barR = Math.round(Math.min(10, fontPx * 0.18));
-    const barPad = Math.round(padX * 0.4);
-    const barW = boxW - barPad * 2;
-    const filled = Math.round(barW * progress);
+  // Panels infra (robust: uses style.display instead of external 'hidden' CSS)
+  private panelsRoot(): HTMLDivElement {
+    let root = document.getElementById('panels') as HTMLDivElement | null;
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'panels';
+      root.style.position = 'fixed';
+      root.style.top = '0';
+      root.style.left = '0';
+      root.style.width = '100%';
+      root.style.height = '100%';
+      root.style.pointerEvents = 'none'; // panels enable on themselves
+      root.style.zIndex = '1000';
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+  private mountPanel(id: string, title: string, render: (body: HTMLDivElement) => void) {
+    const root = this.panelsRoot();
+    let panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'panel';
+      panel.dataset.id = id;
+      panel.style.position = 'absolute';
+      panel.style.right = '12px';
+      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : id === 'flow' ? '200px' : '272px';
+      panel.style.minWidth = '260px';
+      panel.style.maxWidth = '80vw';
+      panel.style.pointerEvents = 'auto';
+      panel.style.background = 'rgba(20,20,28,0.92)';
+      panel.style.border = '1px solid rgba(255,255,255,0.12)';
+      panel.style.borderRadius = '10px';
+      panel.style.boxShadow = '0 6px 24px rgba(0,0,0,0.4)';
+      panel.style.padding = '10px';
+      panel.style.color = '#fff';
+      panel.style.display = 'none';
 
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#fff';
-    roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
-    barGrad.addColorStop(0, hi);
-    barGrad.addColorStop(1, hi2);
-    ctx.fillStyle = barGrad;
-    roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
-    ctx.fill();
-
-    ctx.restore();
+      panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+          <strong>${title}</strong>
+          <button class="close" aria-label="Close" style="background:#2a2a35;border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;">✕</button>
+        </div>
+        <div class="body"></div>
+      `;
+      root.appendChild(panel);
+      panel.querySelector<HTMLButtonElement>('button.close')!.onclick = () => this.togglePanel(id, false);
+    }
+    render(panel.querySelector<HTMLDivElement>('.body')!);
+  }
+  private togglePanel(id: string, force?: boolean) {
+    const root = this.panelsRoot();
+    const panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
+    if (!panel) return;
+    const isVisible = panel.style.display !== 'none';
+    const show = force ?? !isVisible;
+    panel.style.display = show ? 'block' : 'none';
   }
 
   // Color helpers inside class
@@ -2525,160 +2631,4 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       g: Math.round(pa.g + (pb.g - pa.g) * t),
       b: Math.round(pa.b + (pb.b - pa.b) * t)
     };
-    return `rgb(${c.r}, ${c.g}, ${c.b})`;
-  }
-}
-
-// Utils
-
-function clampInt(v: number, min: number, max: number) {
-  return v < min ? min : v > max ? max : v | 0;
-}
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-  ctx.lineTo(x + rr, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-  ctx.lineTo(x, y + rr);
-  ctx.quadraticCurveTo(x, y, x + rr, y);
-  ctx.closePath();
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-// Color utils
-
-function hexToRgb(hex: string) {
-  const m = hex.trim().replace('#', '');
-  const s = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
-  const n = parseInt(s, 16);
-  if (Number.isNaN(n) || (s.length !== 6)) return null;
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
-  const h = (n: number) => Math.max(0, Math.min(255, n | 0)).toString(16).padStart(2, '0');
-  return `#${h(r)}${h(g)}${h(b)}`;
-}
-function rgbToHsl({ r, g, b }: { r: number; g: number; b: number }) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h *= 60;
-  }
-  return { h, s, l };
-}
-function hslToRgb(h: number, s: number, l: number) {
-  h = ((h % 360) + 360) % 360;
-  s = Math.max(0, Math.min(1, s));
-  l = Math.max(0, Math.min(1, l));
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let r1 = 0, g1 = 0, b1 = 0;
-  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else { r1 = c; g1 = 0; b1 = x; }
-  return {
-    r: Math.round((r1 + m) * 255),
-    g: Math.round((g1 + m) * 255),
-    b: Math.round((b1 + m) * 255)
-  };
-}
-function shiftHueHex(hex: string, hue: number) {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return hex;
-  const { s, l } = rgbToHsl(rgb);
-  const rgb2 = hslToRgb(hue, s, l);
-  return rgbToHex(rgb2);
-}
-function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
-  return {
-    dominant: shiftHueHex(p.dominant, hue),
-    secondary: shiftHueHex(p.secondary, hue),
-    colors: p.colors.map((c) => shiftHueHex(c, hue))
-  };
-}
-function blendHex(a: string, b: string, t: number) {
-  const A = hexToRgb(a), B = hexToRgb(b);
-  if (!A || !B) return a;
-  return rgbToHex({
-    r: Math.round(A.r + (B.r - A.r) * t),
-    g: Math.round(A.g + (B.g - A.g) * t),
-    b: Math.round(A.b + (B.b - A.b) * t)
-  });
-}
-function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
-  return {
-    dominant: blendHex(a.dominant, b.dominant, t),
-    secondary: blendHex(a.secondary, b.secondary, t),
-    colors: a.colors.map((c, i) => blendHex(c, b.colors[i % b.colors.length], t))
-  };
-}
-function angularDelta(current: number, target: number) {
-  return ((target - current + 540) % 360) - 180;
-}
-// Half-plane polygon clip: keep points P s.t. dot(P - M, S) <= 0
-function clipPolygonHalfPlane(
-  poly: Array<{ x: number; y: number }>,
-  sx: number,
-  sy: number,
-  mx: number,
-  my: number
-) {
-  if (poly.length === 0) return poly;
-  const out: Array<{ x: number; y: number }> = [];
-  const f = (px: number, py: number) => (px - mx) * sx + (py - my) * sy; // <= 0 is inside
-
-  for (let i = 0; i < poly.length; i++) {
-    const A = poly[i];
-    const B = poly[(i + 1) % poly.length];
-    const fa = f(A.x, A.y);
-    const fb = f(B.x, B.y);
-    const ain = fa <= 0;
-    const bin = fb <= 0;
-
-    if (ain && bin) {
-      // in -> in: keep B
-      out.push({ x: B.x, y: B.y });
-    } else if (ain && !bin) {
-      // in -> out: keep intersection
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-    } else if (!ain && bin) {
-      // out -> in: keep intersection then B
-      const t = fa / (fa - fb);
-      out.push({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
-      out.push({ x: B.x, y: B.y });
-    } // out -> out: keep nothing
-  }
-
-  return out;
-}
+    return `rgb(${c.r}, ${c.g}, ${c.b
