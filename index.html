@@ -2,22 +2,56 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>dwdw</title>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
     <!-- Bump this when you deploy so you can verify the latest HTML is live -->
-    <meta name="build-version" content="2025-08-26-09" />
+    <meta name="build-version" content="2025-08-26-10" />
 
     <!-- Backup source for the proxy URL used by your TikTok feature -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- MUST load before any other scripts. Relative path so it works under /dwdw/. -->
-    <script src="preboot.js?v=2025-08-26-09"></script>
+    <!-- Inline fallback preboot: guarantees TIKTOK_PROXY_URL and audio-features intercept even if external file fails -->
+    <script>
+      (function () {
+        try {
+          var m = document.querySelector('meta[name="tiktok-proxy"]');
+          var u = (m && m.getAttribute('content')) || 'https://dwdw-7a4i.onrender.com';
+          u = u.replace(/\/+$/, '');
+          window.TIKTOK_PROXY_URL = u;
+          try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
+        } catch {}
+
+        // Minimal, idempotent audio-features intercept
+        try {
+          if (!window.__AUDIO_FEATURES_INTERCEPTED) {
+            var of = window.fetch && window.fetch.bind(window);
+            if (of) {
+              window.fetch = function (input, init) {
+                try {
+                  var url = (typeof input === 'string')
+                    ? input
+                    : (input && (input.url || input.toString())) || '';
+                  if (typeof url === 'string' && url.indexOf('https://api.spotify.com/v1/audio-features') === 0) {
+                    return Promise.resolve(new Response('{}', {
+                      status: 200,
+                      headers: { 'Content-Type': 'application/json' }
+                    }));
+                  }
+                } catch {}
+                return of(input, init);
+              };
+              window.__AUDIO_FEATURES_INTERCEPTED = true;
+            }
+          }
+        } catch {}
+      })();
+    </script>
+
+    <!-- External preboot: adds XHR safety net and warning filter; idempotent with the inline fallback above -->
+    <script src="preboot.js?v=2025-08-26-10"></script>
 
     <style>
       :root {
@@ -175,9 +209,7 @@
       }
 
       @media (max-width: 480px) {
-        button, select, input[type="range"] {
-          padding: 5px 8px;
-        }
+        button, select, input[type="range"] { padding: 5px 8px; }
       }
 
       @media (max-width: 380px) {
@@ -214,27 +246,11 @@
         <button id="btn-pause" class="hidden" title="Pause">⏸</button>
         <button id="btn-next" title="Next">⏭</button>
 
-        <input
-          id="seek"
-          type="range"
-          min="0"
-          max="1000"
-          step="1"
-          value="0"
-          aria-label="Seek"
-        />
+        <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" />
         <span id="time-label" class="label">0:00 / 0:00</span>
 
         <label class="label" for="volume">Vol</label>
-        <input
-          id="volume"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value="80"
-          aria-label="Volume"
-        />
+        <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" />
       </div>
 
       <div class="right">
@@ -285,6 +301,6 @@
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
     <!-- Your app entry (in dev, Vite serves /src; in prod, your build replaces this) -->
-    <script type="module" src="/src/main.ts?v=2025-08-26-09"></script>
+    <script type="module" src="/src/main.ts?v=2025-08-26-10"></script>
   </body>
 </html>
