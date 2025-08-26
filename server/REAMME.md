@@ -9,23 +9,23 @@ Connects to TikTok Live chat using `tiktok-live-connector` on the server, and re
    - Build command: `npm install`
    - Start command: `npm start`
    - Environment: Node 18+
-2. After deploy, note the URL, e.g. `https://dwdw-tiktok-proxy.onrender.com`
+2. After deploy, note the URL, e.g. `https://your-app.onrender.com`
 
 ## Test
 
 - Health: `GET https://YOUR-URL/health` — expect `{"ok":true}`
-- SSE: `GET https://YOUR-URL/sse/lmohss` (must be LIVE to see chat events)
+- SSE: `GET https://YOUR-URL/sse/yourUser` (must be LIVE to see chat events)
 
 ## Frontend config
 
 In your site’s `index.html`, set:
 ```html
 <script>
-  window.TIKTOK_PROXY_URL = 'https://dwdw-tiktok-proxy.onrender.com';
+  window.TIKTOK_PROXY_URL = 'https://your-app.onrender.com';
 </script>
 ```
 
-Now, in the app’s Queue panel, enter your username (or paste your profile URL) and click Connect. The frontend will subscribe to `EventSource(PROXY/sse/:username)` and process viewer commands:
+Now, in the app’s Queue panel, enter your username (or paste your profile URL) and click Connect. The frontend subscribes to `EventSource(PROXY/sse/:username)` and processes viewer commands:
 - `!play Song -Artist`
 - `!skip`
 - `!pause`

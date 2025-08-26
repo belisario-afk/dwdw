@@ -1,4 +1,4 @@
-import '@/styles/service-banner.css'; 
+import '@/styles/service-banner.css';
 import { initServiceBannerForAudioFeatures } from '@/utils/serviceBanner'; initServiceBannerForAudioFeatures();
 import './fonts';
 import './styles/lyrics.css';
@@ -25,7 +25,7 @@ declare global {
     TikTokLiveConnector?: any;
     WebcastPushConnection?: any;
 
-    // Set this in index.html: window.TIKTOK_PROXY_URL = 'https://your-proxy.onrender.com';
+    // Set in index.html to use the proxy: window.TIKTOK_PROXY_URL = 'https://your-app.onrender.com'
     TIKTOK_PROXY_URL?: string;
   }
 }
@@ -60,7 +60,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   (window as any).director = director;
 
-  // Emo Slashes collector image(s)
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
   // director.setEmoBackgroundImage(`${import.meta.env.BASE_URL}assets/demon-slayer-bg.jpg`);
@@ -68,7 +67,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Scene smart fallback (covers mislabeled/internal scene ids)
+  // Scene smart fallback (covers mislabeled scene ids)
   const sceneFallbacks: Record<string, string[]> = {
     'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
     'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
@@ -85,7 +84,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     return false;
   }
 
-  // Scene picker
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {
@@ -319,6 +317,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
+        // Prefer proxy if configured; fallback to browser connector
         if (getTikTokProxy()) {
           await tiktokConnectViaProxy(uniqueId);
           setTTStatus(`Connected via proxy to @${uniqueId}`);
@@ -558,6 +557,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     if (!base) throw new Error('No proxy configured');
 
     const sseURL = `${base}/sse/${encodeURIComponent(username)}`;
+    // Ensure CORS-friendly EventSource
     const es = new EventSource(sseURL, { withCredentials: false } as any);
     ttEventSource = es;
 

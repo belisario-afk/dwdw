@@ -41,55 +41,29 @@
         -webkit-text-size-adjust: 100%;
       }
 
-      #canvas-host {
-        position: fixed;
-        inset: 0;
-        overflow: hidden;
-      }
+      #canvas-host { position: fixed; inset: 0; overflow: hidden; }
 
       .toolbar {
         position: fixed;
         top: max(12px, var(--safe-top));
         left: max(12px, var(--safe-left));
         right: max(12px, var(--safe-right));
-        margin: 0 auto;
-
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
-
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+        gap: 12px; padding: 10px 12px;
         background: var(--hud-surface);
         backdrop-filter: blur(12px) saturate(120%);
-        border: var(--hud-border);
-        border-radius: var(--hud-radius);
-        box-shadow: var(--hud-shadow);
-        z-index: 9999;
-        pointer-events: auto;
-
-        -webkit-tap-highlight-color: transparent;
+        border: var(--hud-border); border-radius: var(--hud-radius); box-shadow: var(--hud-shadow);
+        z-index: 9999; pointer-events: auto; -webkit-tap-highlight-color: transparent;
       }
-
-      .left, .center, .right {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }
-      .left  { flex: 1 1 320px; justify-content: flex-start; }
+      .left, .center, .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .left { flex: 1 1 320px; justify-content: flex-start; }
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
-
       .left > *, .center > *, .right > * { flex: 0 0 auto; min-width: 0; }
 
       button, select, input[type="range"] {
-        color: var(--fg);
-        background: #1a1a21;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
-        padding: 6px 10px;
+        color: var(--fg); background: #1a1a21; border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px; padding: 6px 10px;
       }
       button { cursor: pointer; }
       button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -103,21 +77,13 @@
       #volume { width: 110px; }
 
       #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
-      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
+      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
 
-      #screensaver {
-        position: fixed; inset: 0;
-        background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
-        opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150;
-      }
+      #screensaver { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(0,0,0,0.35), rgba(0,0,0,0.8)); opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150; }
       #screensaver.active { opacity: 1; }
 
       @media (max-width: 768px) {
-        .toolbar {
-          top: auto; bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
-          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
-        }
+        .toolbar { top: auto; bottom: max(10px, var(--safe-bottom)); left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right)); justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px); }
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
@@ -134,7 +100,7 @@
     </style>
 
     <script>
-      // Use your deployed Render proxy URL
+      // Use your deployed Render proxy URL (no trailing slash)
       window.TIKTOK_PROXY_URL = 'https://dwdw-7a4i.onrender.com';
     </script>
   </head>
