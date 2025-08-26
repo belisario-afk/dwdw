@@ -7,6 +7,9 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
+    <!-- Provide the proxy URL via meta so it works even if inline scripts are blocked -->
+    <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
+
     <style>
       :root {
         --bg: #0b0b0f;
@@ -81,13 +84,6 @@
         #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
     </style>
-
-    <script>
-      // Use your deployed Render proxy URL and force proxy usage
-      window.TIKTOK_PROXY_URL = 'https://dwdw-7a4i.onrender.com';
-      window.FORCE_TIKTOK_PROXY = true;
-      window.ENABLE_BROWSER_FALLBACK = false;
-    </script>
   </head>
   <body>
     <div id="canvas-host" aria-hidden="true"></div>

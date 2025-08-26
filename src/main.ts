@@ -20,7 +20,6 @@ initResponsiveHUD();
 (() => {
   const origWarn = console.warn.bind(console);
   const origError = console.error.bind(console);
-  const origLog = console.log.bind(console);
   console.warn = (...args: any[]) => {
     const s = String(args[0] ?? '');
     // Spotify EME robustness warning (harmless)
@@ -33,11 +32,6 @@ initResponsiveHUD();
     if (s.includes('Audio features fetch failed')) return;
     origError(...args);
   };
-  console.log = (...args: any[]) => {
-    const s = String(args[0] ?? '');
-    if (s.includes('Audio features fetch failed')) return;
-    origLog(...args);
-  };
 })();
 
 declare global {
@@ -46,16 +40,17 @@ declare global {
     Spotify: any;
     director?: VisualDirector;
 
-    // Optional (browser fallback; we disable it unless explicitly turned on)
+    // Optional browser fallback libs (we won't use them unless you enable manually)
     TikTokLiveConnector?: any;
     WebcastPushConnection?: any;
 
-    // Set in index.html
+    // Configuration hooks
     TIKTOK_PROXY_URL?: string;
-    FORCE_TIKTOK_PROXY?: boolean;        // default true (use proxy only)
-    ENABLE_BROWSER_FALLBACK?: boolean;   // default false (never use in-browser connector)
   }
 }
+
+// Set your default proxy URL here as a last-resort fallback
+const DEFAULT_TIKTOK_PROXY = 'https://dwdw-7a4i.onrender.com';
 
 const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
 const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
@@ -90,12 +85,11 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   // Emo Slashes collector image(s)
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
-  // director.setEmoBackgroundImage(`${import.meta.env.BASE_URL}assets/demon-slayer-bg.jpg`);
 
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Scene smart fallback (covers mislabeled/internal scene ids)
+  // Scene smart fallback
   const sceneFallbacks: Record<string, string[]> = {
     'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
     'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
@@ -112,7 +106,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     return false;
   }
 
-  // Scene picker
+  // Bind controls
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {
@@ -205,7 +199,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   function stopAuthedFlows() {
     if (!started) return;
     started = false;
-    if (pollTimer) { clearInterval(pollTimer); } 
+    if (pollTimer) { clearInterval(pollTimer); }
     pollTimer = null;
     lastTrackId = null;
   }
@@ -352,22 +346,9 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
-        const proxy = getTikTokProxy();
-        const forceProxy = getForceProxy();
-        const allowFallback = getBrowserFallback();
-
-        if (proxy) {
-          setTTStatus(`Connecting via proxy…`);
-          await tiktokConnectViaProxy(uniqueId);
-          setTTStatus(`Connected via proxy to @${uniqueId}`);
-        } else if (forceProxy) {
-          setTTStatus('Proxy URL not configured. Set window.TIKTOK_PROXY_URL in index.html.');
-        } else if (allowFallback) {
-          await tiktokConnectBrowser(uniqueId);
-          setTTStatus(`Connected (browser) to @${uniqueId}`);
-        } else {
-          setTTStatus('Proxy URL not configured and browser fallback disabled.');
-        }
+        setTTStatus('Connecting via proxy…');
+        await tiktokConnectViaProxy(uniqueId);
+        setTTStatus(`Connected via proxy to @${uniqueId}`);
       } catch (e: any) {
         console.debug('TikTok connect failed', e);
         setTTStatus(`Connect failed: ${e?.message || e}`);
@@ -565,7 +546,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     }
   }
 
-  // ——— TikTok bridge: proxy-first, browser fallback (disabled by default) ———
+  // ——— TikTok bridge (proxy only) ———
 
   function normalizeTikTokId(input: string): string | null {
     if (!input) return null;
@@ -584,19 +565,13 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   function getTikTokProxy(): string | null {
     const fromWindow = (window as any).TIKTOK_PROXY_URL;
-    if (fromWindow && typeof fromWindow === 'string' && fromWindow.startsWith('http')) return fromWindow.replace(/\/+$/, '');
+    const fromMeta = document.querySelector('meta[name="tiktok-proxy"]')?.getAttribute('content');
+    const fromLS = localStorage.getItem('TIKTOK_PROXY_URL');
+    const v = String(fromWindow || fromMeta || fromLS || DEFAULT_TIKTOK_PROXY || '').trim();
+    if (v && v.startsWith('http')) return v.replace(/\/+$/, '');
     return null;
   }
-  function getForceProxy(): boolean {
-    const v = (window as any).FORCE_TIKTOK_PROXY;
-    return v === undefined ? true : !!v;
-  }
-  function getBrowserFallback(): boolean {
-    const v = (window as any).ENABLE_BROWSER_FALLBACK;
-    return !!v;
-  }
 
-  let ttConnBrowser: any | null = null;
   let ttEventSource: EventSource | null = null;
 
   async function checkProxyHealth(base: string): Promise<void> {
@@ -645,70 +620,10 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     };
   }
 
-  async function ensureTikTokConnectorBrowser(): Promise<boolean> {
-    if (
-      (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
-      (window as any).WebcastPushConnection
-    ) return true;
-
-    const sources = [
-      'https://unpkg.com/tiktok-live-connector/dist/browser.js',
-      'https://cdn.jsdelivr.net/npm/tiktok-live-connector/dist/browser.js'
-    ];
-    for (const src of sources) {
-      const ok = await new Promise<boolean>((resolve) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = true;
-        s.defer = true;
-        s.crossOrigin = 'anonymous';
-        s.onload = () => resolve(true);
-        s.onerror = () => resolve(false);
-        document.head.appendChild(s);
-      });
-      if (ok) break;
-    }
-
-    return !!(
-      (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
-      (window as any).WebcastPushConnection
-    );
-  }
-
-  async function tiktokConnectBrowser(username: string) {
-    await tiktokDisconnect();
-    const ok = await ensureTikTokConnectorBrowser();
-    if (!ok) throw new Error('Browser connector not available');
-    const Ctor =
-      (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
-      (window as any).WebcastPushConnection;
-
-    const conn = new Ctor(username, { enableExtendedGiftInfo: false });
-    ttConnBrowser = conn;
-
-    conn.on('chat', (data: any) => {
-      const user = data?.uniqueId || data?.nickname || 'user';
-      const comment: string = data?.comment || '';
-      if (!comment) return;
-      handleIncomingChat(user, comment);
-    });
-
-    conn.on('disconnected', () => setTTStatus('Disconnected'));
-    conn.on('error', (e: any) => {
-      setTTStatus(`Error: ${e?.message || 'unknown'}`);
-    });
-
-    await conn.connect();
-  }
-
   async function tiktokDisconnect() {
     if (ttEventSource) {
       try { ttEventSource.close(); } catch {}
       ttEventSource = null;
-    }
-    if (ttConnBrowser?.disconnect) {
-      try { await ttConnBrowser.disconnect(); } catch {}
-      ttConnBrowser = null;
     }
   }
 
