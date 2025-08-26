@@ -8,12 +8,12 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
     <!-- Bump this when you deploy so you can verify the latest HTML is live -->
-    <meta name="build-version" content="2025-08-26-10" />
+    <meta name="build-version" content="2025-08-26-11" />
 
     <!-- Backup source for the proxy URL used by your TikTok feature -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- Inline fallback preboot: guarantees TIKTOK_PROXY_URL and audio-features intercept even if external file fails -->
+    <!-- Inline fallback preboot: guarantees TIKTOK_PROXY_URL + audio-features intercept even if external file fails -->
     <script>
       (function () {
         try {
@@ -50,8 +50,8 @@
       })();
     </script>
 
-    <!-- External preboot: adds XHR safety net and warning filter; idempotent with the inline fallback above -->
-    <script src="preboot.js?v=2025-08-26-10"></script>
+    <!-- External preboot: adds XHR safety net and warning filters; idempotent with the inline fallback -->
+    <script src="preboot.js?v=2025-08-26-11"></script>
 
     <style>
       :root {
@@ -85,11 +85,7 @@
       }
 
       /* Canvas host fills the viewport behind the HUD */
-      #canvas-host {
-        position: fixed;
-        inset: 0;
-        overflow: hidden;
-      }
+      #canvas-host { position: fixed; inset: 0; overflow: hidden; }
 
       /* Toolbar HUD */
       .toolbar {
@@ -127,10 +123,7 @@
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
-      .left > *, .center > *, .right > * {
-        flex: 0 0 auto;
-        min-width: 0;
-      }
+      .left > *, .center > *, .right > * { flex: 0 0 auto; min-width: 0; }
 
       button, select, input[type="range"] {
         color: var(--fg);
@@ -140,10 +133,7 @@
         padding: 6px 10px;
       }
       button { cursor: pointer; }
-      button:disabled, select:disabled, input:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
+      button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
 
       .hidden { display: none !important; }
       .label { color: var(--muted); white-space: nowrap; }
@@ -154,50 +144,23 @@
       #volume { width: 110px; }
 
       /* Side panels container */
-      #panels {
-        position: fixed;
-        right: 0;
-        top: 0;
-        bottom: 0;
-        pointer-events: none;
-        z-index: 200;
-      }
-      #panels .panel {
-        pointer-events: auto;
-        background: #121219;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 10px;
-        color: var(--fg);
-      }
+      #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
+      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
 
       /* Screensaver overlay */
       #screensaver {
-        position: fixed;
-        inset: 0;
+        position: fixed; inset: 0;
         background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 300ms ease;
-        z-index: 150;
+        opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150;
       }
       #screensaver.active { opacity: 1; }
 
       /* Responsive adjustments */
-      @media (max-width: 1024px) {
-        #seek { width: min(45vw, 520px); }
-      }
-
       @media (max-width: 768px) {
         .toolbar {
-          top: auto;
-          bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left));
-          right: max(10px, var(--safe-right));
-          justify-content: center;
-          gap: 8px;
-          padding: 10px;
-          border-radius: calc(var(--hud-radius) + 2px);
+          top: auto; bottom: max(10px, var(--safe-bottom));
+          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
+          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
         }
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
@@ -208,20 +171,9 @@
         .label--long, #gpu-label, #fps-label { display: none !important; }
       }
 
-      @media (max-width: 480px) {
-        button, select, input[type="range"] { padding: 5px 8px; }
-      }
-
       @media (max-width: 380px) {
-        .toolbar {
-          left: max(8px, var(--safe-left));
-          right: max(8px, var(--safe-right));
-          gap: 6px;
-          padding: 8px;
-        }
-        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record {
-          display: none !important;
-        }
+        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
+        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
     </style>
   </head>
@@ -233,9 +185,7 @@
         <button id="btn-login" title="Login with Spotify">Login</button>
         <button id="btn-logout" class="hidden" title="Logout">Logout</button>
         <span id="user-label" class="label" aria-live="polite"></span>
-
         <span class="spacer"></span>
-
         <label class="label label--long" for="device-picker">Device</label>
         <select id="device-picker" title="Playback device"></select>
       </div>
@@ -301,6 +251,6 @@
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
     <!-- Your app entry (in dev, Vite serves /src; in prod, your build replaces this) -->
-    <script type="module" src="/src/main.ts?v=2025-08-26-10"></script>
+    <script type="module" src="/src/main.ts?v=2025-08-26-11"></script>
   </body>
 </html>

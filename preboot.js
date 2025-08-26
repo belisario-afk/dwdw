@@ -1,7 +1,7 @@
 /* Preboot: runs before any other scripts
    - Ensures window.TIKTOK_PROXY_URL is set immediately (and persisted).
    - Silences Spotify audio-features 403 noise by intercepting before the network.
-   - Adds an XHR safety net and filters a known harmless EME console warning.
+   - Adds an XHR safety net and filters known harmless warnings/errors.
    - Idempotent with the inline fallback (checks window.__AUDIO_FEATURES_INTERCEPTED).
 */
 (function () {
@@ -139,14 +139,25 @@
     }
   } catch {}
 
-  // 3) Filter a known harmless EME console warning from app-origin logs
+  // 3) Filter known harmless warnings/errors from app-origin logs
   try {
     var _warn = console.warn && console.warn.bind(console);
     if (_warn) {
       console.warn = function () {
         var s = String(arguments[0] ?? '');
-        if (s.includes('robustness level be specified')) return;
+        if (s.includes('robustness level be specified')) return; // EME robustness hint
         return _warn.apply(console, arguments);
+      };
+    }
+  } catch {}
+
+  try {
+    var _error = console.error && console.error.bind(console);
+    if (_error) {
+      console.error = function () {
+        var s = String(arguments[0] ?? '');
+        if (s.includes('/v1/audio-features') || s.includes('Audio features fetch failed')) return;
+        return _error.apply(console, arguments);
       };
     }
   } catch {}
