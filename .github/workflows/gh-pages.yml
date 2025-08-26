@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          # Safe even if pnpm-lock.yaml doesn't exist; cache just won't be used the first time
+          # It's fine if this file doesn't exist yet; caching will just be skipped.
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Setup PNPM
@@ -34,12 +34,12 @@ jobs:
         with:
           version: 9
           standalone: true
-          # IMPORTANT: avoid failing when lockfile is missing
+          # CRITICAL: don't auto-install (which requires a lockfile)
           run_install: false
 
-      - name: Install deps
-        # Works even if pnpm-lock.yaml isn't there yet
-        run: pnpm -w install --no-frozen-lockfile
+      - name: Install dependencies
+        # Works even if pnpm-lock.yaml does not exist yet
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build
         run: pnpm run build
