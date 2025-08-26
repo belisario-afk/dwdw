@@ -56,28 +56,45 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const director = new VisualDirector(api);
   const vj = new VJ(director, player);
 
-  // Expose for quick console testing: window.director.requestScene('Emo Slashes')
+  // Expose for quick console testing
   (window as any).director = director;
 
-  // Collector image for Emo Slashes:
-  // Put your PNG in public/assets/ (recommended name: demon-slayer-hero.png to avoid spaces)
-  // These two calls are safe: the first one wins if it exists; otherwise the second tries the original filename.
+  // Collector image for Emo Slashes
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
-  // Optional: separate background image (JPEG/wallpaper). If not set, the PNG is used for a blurred/dim BG.
   // director.setEmoBackgroundImage(`${import.meta.env.BASE_URL}assets/demon-slayer-bg.jpg`);
-  // Optional: start on the scene to preview
-  // director.requestScene('Emo Slashes');
 
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Wire scene picker and top‑level controls
+  // Smart scene selection: try exact name first, then fallbacks if your director uses different labels
+  const sceneFallbacks: Record<string, string[]> = {
+    // Keep your visible label first; list alternates your VisualDirector might use
+    'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
+    'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
+    'Terrain': ['Terrain', 'Landscape', 'Heightfield', 'Mountains', 'Terrain Scene'],
+    'Typography': ['Typography', 'Lyric Typography', 'Lyrics', 'Lyric Lines', 'Type']
+  };
+
+  async function requestSceneSmart(name: string) {
+    const candidates = sceneFallbacks[name] || [name];
+    for (const c of candidates) {
+      try {
+        await director.requestScene(c);
+        return true;
+      } catch {}
+    }
+    // As last resort try Auto
+    try { await director.requestScene('Auto'); } catch {}
+    return false;
+  }
+
+  // Wire scene picker
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {
       const val = (e.target as HTMLSelectElement).value;
-      director.requestScene(val);
+      requestSceneSmart(val);
     });
   }
 
@@ -132,6 +149,11 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   // Enable audio reactive visuals by default after login
   if (auth.getAccessToken()) director.setFeaturesEnabled(true);
 
+  // Ensure there's always a visible scene
+  try {
+    await requestSceneSmart('Auto');
+  } catch {}
+
   // Playback polling + palette application
   let started = false;
   let pollTimer: any = null;
@@ -147,21 +169,18 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       if (track.id !== lastTrackId) {
         lastTrackId = track.id;
 
-        // Palette from album art
         const img = track.album?.images?.[0]?.url || null;
         if (img) {
           try {
             const palette = await Palette.fromImageURL(img);
             ui.applyPalette(palette);
             director.setPalette(palette);
-            // Provide album art to VisualDirector (Flow Field, Stained Glass sampling, etc.)
             director.setAlbumArt(img).catch(() => {});
           } catch (e) {
             console.warn('Palette extraction failed', e);
           }
         }
 
-        // Inform director of new track (fetches audio features if enabled)
         await director.onTrack(track).catch(() => {});
       }
     }
@@ -201,12 +220,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   // ————————————————————————————————————————————————————————————————
   // Experimental: Song Queue panel + TikTok chat command parsing
-  // Opt-in, safe; can be removed by deleting this block.
-  // Features:
-  // - Side panel showing queued songs
-  // - Parse commands like: !play Song Name -Artist Name
-  // - Manual "Simulate chat" input for testing (no TikTok needed)
-  // - Optional Connect to TikTok live chat (loads connector script on demand)
+  // Parse: !play Song Name -Artist Name
   // ————————————————————————————————————————————————————————————————
 
   type QueueItem = {
@@ -378,7 +392,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   }
   btnQueue?.addEventListener('click', () => toggleQueuePanel());
 
-  // Minimal Spotify helpers (avoid modifying existing API class)
+  // Minimal Spotify helpers (reuse current token)
   async function spotifyGET<T>(pathAndQuery: string): Promise<T> {
     const token = auth.getAccessToken();
     if (!token) throw new Error('No access token');
@@ -417,7 +431,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   }
 
   async function addToQueue(uri: string): Promise<void> {
-    // Adds to the currently active device queue
     await spotifyPOST(`/me/player/queue?uri=${encodeURIComponent(uri)}`);
   }
 
@@ -426,14 +439,12 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     if (!item) return;
     const optimistic: QueueItem = { ...item, requestedBy };
 
-    // Optimistic UI update
     queueState.items.push(optimistic);
     renderQueueList();
 
     try {
       await addToQueue(item.uri);
     } catch (e) {
-      // Rollback on failure
       queueState.items = queueState.items.filter(
         (i) => !(i.uri === optimistic.uri && i.requestedBy === optimistic.requestedBy)
       );
@@ -520,5 +531,4 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   // Initialize panel immediately so user can test
   initQueuePanel();
-  // ————————————————————————————————————————————————————————————————
 })();
