@@ -7,7 +7,10 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Provide the proxy URL via meta (extra source for the app to read) -->
+    <!-- Visible version tag to confirm the new build is live -->
+    <meta name="build-version" content="2025-08-26-01" />
+
+    <!-- Provide the proxy URL via meta (backup source) -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
     <!-- Failsafe: set window + localStorage ASAP so console logging shows a value -->
@@ -16,7 +19,6 @@
         try {
           var u = 'https://dwdw-7a4i.onrender.com'.replace(/\/+$/, '');
           window.TIKTOK_PROXY_URL = u;
-          // Persist so reloads and the app can read it even if inline scripts are cached/blocked
           try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
         } catch {}
       })();
@@ -44,7 +46,6 @@
       }
 
       html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: var(--hud-font); overflow: hidden; -webkit-text-size-adjust: 100%; }
-
       #canvas-host { position: fixed; inset: 0; overflow: hidden; }
 
       .toolbar {
@@ -169,6 +170,7 @@
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
-    <script type="module" src="/src/main.ts"></script>
+    <!-- Cache-bust the app entry so browsers fetch the latest build -->
+    <script type="module" src="/src/main.ts?v=2025-08-26-01"></script>
   </body>
 </html>

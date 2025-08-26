@@ -16,37 +16,27 @@ import { initResponsiveHUD } from '@ui/responsive';
 
 initResponsiveHUD();
 
-// Quiet our own noisy logs (browser EME warning is harmless and may still show as a UA message)
+// Quiet our own noisy logs (browser EME warning may still appear; it’s harmless)
 (() => {
-  const origWarn = console.warn.bind(console);
-  const origError = console.error.bind(console);
-  console.warn = (...args: any[]) => {
-    const s = String(args[0] ?? '');
-    if (s.includes('robustness level be specified')) return;
-    origWarn(...args);
-  };
-  console.error = (...args: any[]) => {
-    const s = String(args[0] ?? '');
-    if (s.includes('Audio features fetch failed')) return;
-    origError(...args);
-  };
+  const w = console.warn.bind(console);
+  const e = console.error.bind(console);
+  console.warn = (...a: any[]) => { const s = String(a[0] ?? ''); if (s.includes('robustness level be specified')) return; w(...a); };
+  console.error = (...a: any[]) => { const s = String(a[0] ?? ''); if (s.includes('Audio features fetch failed')) return; e(...a); };
 })();
 
 // Suppress audio-features 403/429 network noise by short-circuiting before the request
 (() => {
-  const origFetch: any = window.fetch.bind(window as any);
-  (window as any).fetch = async (input: any, init?: any): Promise<Response> => {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
       ? input.toString()
-      : (input && input.url) || '';
-
+      : (input as Request).url;
     if (typeof url === 'string' && url.startsWith('https://api.spotify.com/v1/audio-features')) {
-      // Return empty JSON without hitting the network to avoid 403 console noise
       return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    return origFetch(input, init);
+    return origFetch(input as any, init);
   };
 })();
 
@@ -55,37 +45,30 @@ declare global {
     onSpotifyWebPlaybackSDKReady?: () => void;
     Spotify: any;
     director?: VisualDirector;
-
     TIKTOK_PROXY_URL?: string;
   }
 }
 
-// Final fallback if nothing else is present (kept in sync into window and localStorage)
 const DEFAULT_TIKTOK_PROXY = 'https://dwdw-7a4i.onrender.com';
+const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
+const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
-function readProxyURL(): string | null {
+function readProxyURL(): string {
   const fromWindow = (window as any).TIKTOK_PROXY_URL;
   const fromMeta = document.querySelector('meta[name="tiktok-proxy"]')?.getAttribute('content');
   let fromLS: string | null = null;
   try { fromLS = localStorage.getItem('TIKTOK_PROXY_URL'); } catch {}
-
   const v = String(fromWindow || fromMeta || fromLS || DEFAULT_TIKTOK_PROXY || '').trim();
-  if (v && /^https?:\/\//i.test(v)) return v.replace(/\/+$/, '');
-  return null;
+  return v.replace(/\/+$/, '');
 }
-
-const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
-const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
 (async function boot() {
   ensureRoute();
 
   // Ensure window + localStorage have the proxy so console shows it and it persists
-  const resolvedProxy = readProxyURL();
-  if (resolvedProxy) {
-    (window as any).TIKTOK_PROXY_URL = resolvedProxy;
-    try { localStorage.setItem('TIKTOK_PROXY_URL', resolvedProxy); } catch {}
-  }
+  const proxy = readProxyURL();
+  (window as any).TIKTOK_PROXY_URL = proxy;
+  try { localStorage.setItem('TIKTOK_PROXY_URL', proxy); } catch {}
 
   const cache = new Cache('dwdw-v1');
 
@@ -93,14 +76,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     clientId: CLIENT_ID,
     redirectUri: REDIRECT_URI,
     scopes: [
-      'user-read-email',
-      'user-read-private',
-      'streaming',
-      'user-read-playback-state',
-      'user-modify-playback-state',
-      'user-read-currently-playing',
-      'playlist-read-private',
-      'user-library-read'
+      'user-read-email','user-read-private','streaming','user-read-playback-state',
+      'user-modify-playback-state','user-read-currently-playing','playlist-read-private','user-library-read'
     ]
   });
 
@@ -110,78 +87,20 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const vj = new VJ(director, player);
   (window as any).director = director;
 
-  // Optional assets for Emo Slashes scene
+  // Optional assets
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
 
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Scene smart fallback
-  const sceneFallbacks: Record<string, string[]> = {
-    'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
-    'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
-    'Terrain': ['Terrain', 'Landscape', 'Heightfield', 'Mountains', 'Terrain Scene'],
-    'Typography': ['Typography', 'Lyric Typography', 'Lyrics', 'Lyric Lines', 'Type'],
-    'Auto': ['Auto']
-  };
-  async function requestSceneSmart(name: string) {
-    const candidates = sceneFallbacks[name] || [name];
-    for (const c of candidates) {
-      try { await director.requestScene(c); return true; } catch {}
-    }
-    try { await director.requestScene('Auto'); } catch {}
-    return false;
-  }
-
-  // Controls
-  const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
-  if (sceneSelect) {
-    sceneSelect.addEventListener('change', (e) => {
-      const val = (e.target as HTMLSelectElement).value;
-      requestSceneSmart(val);
-    });
-  }
-  document.getElementById('btn-crossfade')?.addEventListener('click', () => director.crossfadeNow());
-  document.getElementById('btn-quality')?.addEventListener('click', () => director.toggleQualityPanel());
-  document.getElementById('btn-accessibility')?.addEventListener('click', () => director.toggleAccessibilityPanel());
-  document.getElementById('btn-fullscreen')?.addEventListener('click', async () => {
-    try {
-      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
-      else await document.exitFullscreen();
-    } catch {}
-  });
-
-  // Screensaver
-  let idleTimer: any = null;
-  function onActive() {
-    clearTimeout(idleTimer);
-    ui.setScreensaver(false);
-    idleTimer = setTimeout(() => ui.setScreensaver(true), 30000);
-  }
-  ['mousemove', 'keydown', 'pointerdown'].forEach((ev) =>
-    window.addEventListener(ev, onActive, { passive: true })
-  );
-  onActive();
-
-  // GPU label
-  try {
-    const gl =
-      document.createElement('canvas').getContext('webgl2') ||
-      document.createElement('canvas').getContext('webgl');
-    const dbgInfo = (gl as any)?.getExtension('WEBGL_debug_renderer_info');
-    const renderer = dbgInfo
-      ? (gl as any)?.getParameter(dbgInfo.UNMASKED_RENDERER_WEBGL)
-      : 'Unknown';
-    ui.setGPULabel(String(renderer));
-  } catch {}
+  // Simple scene default
+  try { await director.requestScene('Auto'); } catch {}
 
   // Auth flows
   await auth.handleRedirectCallback();
   await auth.restore();
   if (auth.getAccessToken()) director.setFeaturesEnabled(true);
-
-  try { await requestSceneSmart('Auto'); } catch {}
 
   // Playback polling
   let started = false;
@@ -205,9 +124,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
             ui.applyPalette(palette);
             director.setPalette(palette);
             director.setAlbumArt(img).catch(() => {});
-          } catch (e) {
-            console.warn('Palette extraction failed', e);
-          }
+          } catch {}
         }
         await director.onTrack(track).catch(() => {});
       }
@@ -219,31 +136,21 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     started = true;
     await ui.postLogin().catch(() => {});
     await handlePlaybackUpdate().catch(() => {});
-    pollTimer = setInterval(async () => {
-      try { await handlePlaybackUpdate(); } catch {}
-    }, 1000);
+    pollTimer = setInterval(async () => { try { await handlePlaybackUpdate(); } catch {} }, 1000);
   }
   function stopAuthedFlows() {
     if (!started) return;
     started = false;
-    if (pollTimer) { clearInterval(pollTimer); }
+    if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
     lastTrackId = null;
   }
   if (auth.getAccessToken()) startAuthedFlows();
   auth.on('tokens', (t) => { if (t) { director.setFeaturesEnabled(true); startAuthedFlows(); } else stopAuthedFlows(); });
 
-  // ————————————————————————————————————————————————————————————————
-  // TikTok livestream chat -> Spotify queue commands (proxy-only)
-  // ————————————————————————————————————————————————————————————————
+  // ——— TikTok bridge (proxy-only) ———
 
-  type QueueItem = {
-    uri: string;
-    title: string;
-    artist: string;
-    albumArtUrl?: string;
-    requestedBy?: string;
-  };
+  type QueueItem = { uri: string; title: string; artist: string; albumArtUrl?: string; requestedBy?: string; };
   const queueState: { items: QueueItem[] } = { items: [] };
 
   const GLOBAL_COOLDOWN_MS = 4000;
@@ -251,8 +158,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   let lastGlobalAt = 0;
   const lastUserAt = new Map<string, number>();
 
-  function ensurePanelHost(): HTMLElement | null {
-    let host = document.getElementById('panels');
+  function ensurePanelHost(): HTMLElement {
+    let host = document.getElementById('panels') as HTMLElement | null;
     if (!host) {
       host = document.createElement('div');
       host.id = 'panels';
@@ -289,7 +196,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   function setTTStatus(text: string) { if (ttStatusEl) ttStatusEl.textContent = text; }
   function setProxyLabel() {
     const p = readProxyURL();
-    if (p) (window as any).TIKTOK_PROXY_URL = p;
+    (window as any).TIKTOK_PROXY_URL = p;
+    try { localStorage.setItem('TIKTOK_PROXY_URL', p); } catch {}
     if (ttProxyEl) ttProxyEl.textContent = `Proxy: ${p || 'not set'}`;
   }
   function setLastAction(text: string) { if (lastActionEl) lastActionEl.textContent = text; }
@@ -303,7 +211,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   function initQueuePanel() {
     const host = ensurePanelHost();
-    if (!host) return;
 
     const panel = document.createElement('div');
     panel.className = 'panel';
@@ -317,7 +224,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     panel.style.pointerEvents = 'auto';
     panel.style.display = 'none';
     panel.style.background = '#121219';
-    panel.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+    panel.style.border = '1px solid rgba(255,255,255,0.08)';
     panel.style.borderRadius = '10px';
     panel.style.padding = '10px';
     panel.style.color = '#e8e8ef';
@@ -391,7 +298,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     };
     btnClearProxy.onclick = () => {
       try { localStorage.removeItem('TIKTOK_PROXY_URL'); } catch {}
-      // Fall back to meta/default immediately
       (window as any).TIKTOK_PROXY_URL = readProxyURL() || '';
       setProxyLabel();
       setTTStatus('Stored proxy cleared. Using meta/default.');
@@ -401,25 +307,9 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       const raw = inputUser.value.trim();
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
-      try {
-        await tiktokConnectViaProxy(uniqueId); // proxy-only
-      } catch (e: any) {
-        setTTStatus(`Connect failed: ${e?.message || e}`);
-      }
+      try { await tiktokConnectViaProxy(uniqueId); } catch (e: any) { setTTStatus(`Connect failed: ${e?.message || e}`); }
     };
-    btnDisconnect.onclick = async () => {
-      await tiktokDisconnect();
-      setTTStatus('Not connected');
-    };
-
-    const simUser = panel.querySelector('#manual-user') as HTMLInputElement;
-    const simCmd = panel.querySelector('#manual-cmd') as HTMLInputElement;
-    const btnSim = panel.querySelector('#btn-simulate') as HTMLButtonElement;
-    btnSim.onclick = async () => {
-      const user = simUser.value.trim() || 'tester';
-      const text = simCmd.value.trim();
-      if (text) await handleIncomingChat(user, text);
-    };
+    btnDisconnect.onclick = async () => { await tiktokDisconnect(); setTTStatus('Not connected'); };
   }
 
   // Add Queue button if missing
@@ -437,228 +327,107 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   btnQueue?.addEventListener('click', () => toggleQueuePanel());
 
   // Spotify helpers
-  async function spotifyGET<T>(pathAndQuery: string): Promise<T> {
-    const token = auth.getAccessToken();
-    if (!token) throw new Error('No access token');
-    const resp = await fetch(`https://api.spotify.com/v1${pathAndQuery}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  async function spotifyGET<T>(path: string): Promise<T> {
+    const token = auth.getAccessToken(); if (!token) throw new Error('No access token');
+    const resp = await fetch(`https://api.spotify.com/v1${path}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!resp.ok) throw new Error(`Spotify GET ${resp.status} ${await resp.text()}`);
     return resp.json();
   }
-  async function spotifyPOST<T>(pathAndQuery: string): Promise<T | null> {
-    const token = auth.getAccessToken();
-    if (!token) throw new Error('No access token');
-    const resp = await fetch(`https://api.spotify.com/v1${pathAndQuery}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  async function spotifyPOST<T>(path: string): Promise<T | null> {
+    const token = auth.getAccessToken(); if (!token) throw new Error('No access token');
+    const resp = await fetch(`https://api.spotify.com/v1${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
     if (resp.status === 204) return null as any;
     if (!resp.ok) throw new Error(`Spotify POST ${resp.status} ${await resp.text()}`);
     return resp.json().catch(() => null as any);
   }
-  async function spotifyPUT<T>(pathAndQuery: string): Promise<T | null> {
-    const token = auth.getAccessToken();
-    if (!token) throw new Error('No access token');
-    const resp = await fetch(`https://api.spotify.com/v1${pathAndQuery}`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  async function spotifyPUT<T>(path: string): Promise<T | null> {
+    const token = auth.getAccessToken(); if (!token) throw new Error('No access token');
+    const resp = await fetch(`https://api.spotify.com/v1${path}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
     if (resp.status === 204) return null as any;
     if (!resp.ok) throw new Error(`Spotify PUT ${resp.status} ${await resp.text()}`);
     return resp.json().catch(() => null as any);
   }
 
-  // Commands
-  type QueueItem = {
-    uri: string;
-    title: string;
-    artist: string;
-    albumArtUrl?: string;
-    requestedBy?: string;
-  };
+  async function searchTrackTop(q: string): Promise<QueueItem | null> {
+    const data = await spotifyGET<any>(`/search?type=track&limit=5&q=${encodeURIComponent(q)}`);
+    const t = data?.tracks?.items?.[0]; if (!t) return null;
+    return { uri: t.uri, title: t.name, artist: (t.artists || []).map((a: any) => a.name).join(', '), albumArtUrl: t.album?.images?.[1]?.url || t.album?.images?.[0]?.url };
+  }
+  async function addToQueue(uri: string) { await spotifyPOST(`/me/player/queue?uri=${encodeURIComponent(uri)}`); }
+  async function skipTrack() { await spotifyPOST(`/me/player/next`); }
+  async function pausePlayback() { await spotifyPUT(`/me/player/pause`); }
+  async function resumePlayback() { await spotifyPUT(`/me/player/play`); }
+  async function setVolume(vol: number) { const v = Math.max(0, Math.min(100, Math.round(vol))); await spotifyPUT(`/me/player/volume?volume_percent=${v}`); }
 
-  async function searchTrackTop(query: string): Promise<QueueItem | null> {
-    const data = await spotifyGET<any>(`/search?type=track&limit=5&q=${encodeURIComponent(query)}`);
-    const t = data?.tracks?.items?.[0];
-    if (!t) return null;
-    return {
-      uri: t.uri,
-      title: t.name,
-      artist: (t.artists || []).map((a: any) => a.name).join(', '),
-      albumArtUrl: t.album?.images?.[1]?.url || t.album?.images?.[0]?.url
-    };
-  }
-  async function addToQueue(uri: string): Promise<void> {
-    await spotifyPOST(`/me/player/queue?uri=${encodeURIComponent(uri)}`);
-  }
-  async function skipTrack(): Promise<void> {
-    await spotifyPOST(`/me/player/next`);
-  }
-  async function pausePlayback(): Promise<void> {
-    await spotifyPUT(`/me/player/pause`);
-  }
-  async function resumePlayback(): Promise<void> {
-    await spotifyPUT(`/me/player/play`);
-  }
-  async function setVolume(vol: number): Promise<void> {
-    const v = Math.max(0, Math.min(100, Math.round(vol)));
-    await spotifyPUT(`/me/player/volume?volume_percent=${v}`);
-  }
-
-  type Parsed =
-    | { type: 'play'; query: string }
-    | { type: 'skip' }
-    | { type: 'pause' }
-    | { type: 'resume' }
-    | { type: 'volume'; value: number }
-    | null;
-
+  type Parsed = { type: 'play'; query: string } | { type: 'skip' } | { type: 'pause' } | { type: 'resume' } | { type: 'volume'; value: number } | null;
   function parseChatCommand(text: string): Parsed {
-    if (!text) return null;
-    const raw = text.trim();
-    const lower = raw.toLowerCase();
-
-    if (lower.startsWith('!play')) {
-      const payload = raw.slice(5).trim();
-      if (!payload) return null;
-      const dash = payload.indexOf('-');
-      if (dash > 0) {
-        const song = payload.slice(0, dash).trim();
-        const artist = payload.slice(dash + 1).trim();
-        if (song && artist) return { type: 'play', query: `${song} ${artist}` };
-      }
-      return { type: 'play', query: payload };
-    }
+    const raw = (text || '').trim(); const lower = raw.toLowerCase(); if (!raw) return null;
+    if (lower.startsWith('!play')) { const payload = raw.slice(5).trim(); if (!payload) return null; const dash = payload.indexOf('-');
+      if (dash > 0) { const song = payload.slice(0, dash).trim(); const artist = payload.slice(dash + 1).trim(); if (song && artist) return { type: 'play', query: `${song} ${artist}` }; }
+      return { type: 'play', query: payload }; }
     if (lower.startsWith('!skip')) return { type: 'skip' };
     if (lower.startsWith('!pause')) return { type: 'pause' };
     if (lower.startsWith('!resume') || lower.startsWith('!playback')) return { type: 'resume' };
-    if (lower.startsWith('!volume') || lower.startsWith('!vol')) {
-      const num = Number(lower.replace(/!volume|!vol/g, '').trim());
-      if (Number.isFinite(num)) return { type: 'volume', value: num };
-      return null;
-    }
+    if (lower.startsWith('!volume') || lower.startsWith('!vol')) { const num = Number(lower.replace(/!volume|!vol/g, '').trim()); if (Number.isFinite(num)) return { type: 'volume', value: num }; return null; }
     return null;
   }
 
   function passCooldown(user: string): boolean {
-    const now = Date.now();
-    if (now - lastGlobalAt < GLOBAL_COOLDOWN_MS) return false;
-    const lu = lastUserAt.get(user) || 0;
-    if (now - lu < USER_COOLDOWN_MS) return false;
-    lastGlobalAt = now;
-    lastUserAt.set(user, now);
-    return true;
+    const now = Date.now(); if (now - lastGlobalAt < GLOBAL_COOLDOWN_MS) return false;
+    const lu = lastUserAt.get(user) || 0; if (now - lu < USER_COOLDOWN_MS) return false;
+    lastGlobalAt = now; lastUserAt.set(user, now); return true;
   }
 
   async function enqueueByQuery(query: string, requestedBy?: string) {
-    const item = await searchTrackTop(query);
-    if (!item) { setLastAction(`No results for "${query}"`); return; }
+    const item = await searchTrackTop(query); if (!item) { setLastAction(`No results for "${query}"`); return; }
     const optimistic: QueueItem = { ...item, requestedBy };
-
-    queueState.items.push(optimistic);
-    if (queueState.items.length > 50) queueState.items.shift();
+    queueState.items.push(optimistic); if (queueState.items.length > 50) queueState.items.shift();
     renderQueueList();
-
-    try {
-      await addToQueue(item.uri);
-      setLastAction(`Queued: ${item.title} • ${item.artist}${requestedBy ? ` (by ${requestedBy})` : ''}`);
-    } catch {
-      queueState.items = queueState.items.filter(
-        (i) => !(i.uri === optimistic.uri && i.requestedBy === optimistic.requestedBy)
-      );
-      renderQueueList();
-      setLastAction(`Failed to queue track`);
-    }
+    try { await addToQueue(item.uri); setLastAction(`Queued: ${item.title} • ${item.artist}${requestedBy ? ` (by ${requestedBy})` : ''}`); }
+    catch { queueState.items = queueState.items.filter(i => !(i.uri === optimistic.uri && i.requestedBy === optimistic.requestedBy)); renderQueueList(); setLastAction(`Failed to queue track`); }
   }
 
   async function handleIncomingChat(user: string, text: string) {
-    const parsed = parseChatCommand(text);
-    if (!parsed) return;
-
-    if (!passCooldown(user)) {
-      setLastAction(`Cooldown: please wait`);
-      return;
-    }
-
+    const parsed = parseChatCommand(text); if (!parsed) return;
+    if (!passCooldown(user)) { setLastAction(`Cooldown: please wait`); return; }
     try {
       switch (parsed.type) {
-        case 'play':
-          await enqueueByQuery(parsed.query, user);
-          break;
-        case 'skip':
-          await skipTrack();
-          setLastAction(`Skipped (by ${user})`);
-          break;
-        case 'pause':
-          await pausePlayback();
-          setLastAction(`Paused (by ${user})`);
-          break;
-        case 'resume':
-          await resumePlayback();
-          setLastAction(`Resumed (by ${user})`);
-          break;
-        case 'volume':
-          await setVolume(parsed.value);
-          setLastAction(`Volume set to ${Math.round(parsed.value)}% (by ${user})`);
-          break;
+        case 'play': await enqueueByQuery(parsed.query, user); break;
+        case 'skip': await skipTrack(); setLastAction(`Skipped (by ${user})`); break;
+        case 'pause': await pausePlayback(); setLastAction(`Paused (by ${user})`); break;
+        case 'resume': await resumePlayback(); setLastAction(`Resumed (by ${user})`); break;
+        case 'volume': await setVolume(parsed.value); setLastAction(`Volume set to ${Math.round(parsed.value)}% (by ${user})`); break;
       }
-    } catch {
-      setLastAction(`Command failed`);
-    }
+    } catch { setLastAction(`Command failed`); }
   }
 
-  // ——— TikTok bridge (proxy-only) ———
-
   function normalizeTikTokId(input: string): string | null {
-    if (!input) return null;
-    let s = input.trim();
-    if (/^https?:\/\//i.test(s)) {
-      try {
-        const u = new URL(s);
-        const m = u.pathname.match(/\/@([A-Za-z0-9._-]+)/);
-        if (m) s = m[1];
-      } catch {}
-    }
+    if (!input) return null; let s = input.trim();
+    if (/^https?:\/\//i.test(s)) { try { const u = new URL(s); const m = u.pathname.match(/\/@([A-Za-z0-9._-]+)/); if (m) s = m[1]; } catch {} }
     if (s.startsWith('@')) s = s.slice(1);
     if (!/^[A-Za-z0-9._-]{2,24}$/.test(s)) return null;
     return s;
   }
 
   async function checkProxyHealth(base: string): Promise<void> {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 6000);
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 6000);
     try {
       const res = await fetch(`${base}/health`, { signal: ctl.signal, cache: 'no-store' });
       if (!res.ok) throw new Error(`${res.status}`);
       const j = await res.json().catch(() => ({}));
       if (!j || j.ok !== true) throw new Error('health not ok');
-    } finally {
-      clearTimeout(t);
-    }
+    } finally { clearTimeout(t); }
   }
 
   let ttEventSource: EventSource | null = null;
 
   async function tiktokConnectViaProxy(username: string) {
     await tiktokDisconnect();
-
     const base = readProxyURL();
-    if (!base) throw new Error('Proxy URL not configured');
-    (window as any).TIKTOK_PROXY_URL = base;
-    setProxyLabel();
-    setTTStatus('Connecting via proxy…');
-
-    try {
-      await checkProxyHealth(base);
-    } catch {
-      throw new Error('Proxy not reachable. Check Render URL and /health');
-    }
-
-    const sseURL = `${base}/sse/${encodeURIComponent(username)}`;
-    const es = new EventSource(sseURL, { withCredentials: false } as any);
+    (window as any).TIKTOK_PROXY_URL = base; setProxyLabel(); setTTStatus('Connecting via proxy…');
+    await checkProxyHealth(base).catch(() => { throw new Error('Proxy not reachable. Check Render URL and /health'); });
+    const es = new EventSource(`${base}/sse/${encodeURIComponent(username)}`, { withCredentials: false } as any);
     ttEventSource = es;
-
     es.onopen = () => setTTStatus(`Connected via proxy to @${username}`);
     es.onerror = () => setTTStatus('Proxy connection error (server sleeping or not reachable)');
     es.onmessage = (ev) => {
@@ -678,10 +447,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   }
 
   async function tiktokDisconnect() {
-    if (ttEventSource) {
-      try { ttEventSource.close(); } catch {}
-      ttEventSource = null;
-    }
+    if (ttEventSource) { try { ttEventSource.close(); } catch {} ttEventSource = null; }
   }
 
   // Initialize panel immediately
