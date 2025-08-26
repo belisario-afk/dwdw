@@ -7,13 +7,22 @@ export type AudioFeatures = {
 };
 
 type AudioFeaturesErrorInfo = {
-  status: number;      // 0 = network/unknown
-  detail?: unknown;    // parsed server error if available
+  status: number;    // 0 for network/unknown
+  detail?: unknown;  // optional server error payload or thrown error
 };
 
-let audioFeaturesErrorHandler: ((info: AudioFeaturesErrorInfo) => void) | undefined;
+let audioFeaturesErrorHandler:
+  | ((info: AudioFeaturesErrorInfo) => void)
+  | undefined;
 
-export function setAudioFeaturesErrorHandler(fn: (info: AudioFeaturesErrorInfo) => void) {
+/**
+ * Allows UI modules (e.g., service banner) to receive errors from audio-features fetches.
+ * Example:
+ *   setAudioFeaturesErrorHandler(({ status }) => { ... });
+ */
+export function setAudioFeaturesErrorHandler(
+  fn: (info: AudioFeaturesErrorInfo) => void
+) {
   audioFeaturesErrorHandler = fn;
 }
 
@@ -25,17 +34,25 @@ const NEUTRAL: AudioFeatures = {
   loudness: -8,
 };
 
-export async function getAudioFeatures(trackId: string, token: string): Promise<AudioFeatures> {
+export async function getAudioFeatures(
+  trackId: string,
+  token: string
+): Promise<AudioFeatures> {
   if (!trackId || !token) return NEUTRAL;
 
   try {
-    const res = await fetch(`https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(
+      `https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
     if (!res.ok) {
-      let detail: unknown = undefined;
-      try { detail = await res.json(); } catch {}
+      let detail: unknown;
+      try {
+        detail = await res.json();
+      } catch {
+        /* ignore */
+      }
       console.warn(`Audio features fetch failed ${res.status}:`, detail);
       audioFeaturesErrorHandler?.({ status: res.status, detail });
       return NEUTRAL;
