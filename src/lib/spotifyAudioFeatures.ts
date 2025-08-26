@@ -34,17 +34,25 @@ const NEUTRAL: AudioFeatures = {
   loudness: -8,
 };
 
-export async function getAudioFeatures(trackId: string, token: string): Promise<AudioFeatures> {
+export async function getAudioFeatures(
+  trackId: string,
+  token: string
+): Promise<AudioFeatures> {
   if (!trackId || !token) return NEUTRAL;
 
   try {
-    const res = await fetch(`https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(
+      `https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
     if (!res.ok) {
       let detail: unknown = undefined;
-      try { detail = await res.json(); } catch { /* ignore parse errors */ }
+      try {
+        detail = await res.json();
+      } catch {
+        /* ignore parse errors */
+      }
       console.warn(`Audio features fetch failed ${res.status}:`, detail);
       audioFeaturesErrorHandler?.({ status: res.status, detail });
       return NEUTRAL;

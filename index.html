@@ -50,6 +50,9 @@
         border-radius: 12px;
         z-index: 100;
         pointer-events: auto;
+
+        /* Respect iOS safe area at the top (overrides the inset's top) */
+        top: max(12px, env(safe-area-inset-top, 0px));
       }
       .left,
       .center,
@@ -62,6 +65,14 @@
       .left { justify-content: flex-start; }
       .center { justify-content: center; }
       .right { justify-content: flex-end; }
+
+      /* Prevent children from shrinking into each other */
+      .left > *,
+      .center > *,
+      .right > * {
+        flex: 0 0 auto;
+        min-width: 0;
+      }
 
       button,
       select,
@@ -114,6 +125,42 @@
         z-index: 150;
       }
       #screensaver.active { opacity: 1; }
+
+      /* Responsive layout for small screens */
+      @media (max-width: 768px) {
+        .toolbar {
+          /* Stack sections vertically and tighten spacing */
+          grid-template-columns: 1fr;
+          row-gap: 8px;
+          gap: 8px;
+          padding: 8px;
+        }
+
+        /* Let sections wrap and center their contents */
+        .left, .center, .right {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        /* Make wide controls take a full row when needed */
+        #seek {
+          width: 100%;
+          max-width: 100%;
+        }
+        #volume {
+          width: min(50vw, 220px);
+        }
+      }
+
+      /* Extra-tight phones */
+      @media (max-width: 360px) {
+        .toolbar {
+          left: 8px;
+          right: 8px;
+          gap: 6px;
+          padding: 8px;
+        }
+      }
     </style>
   </head>
   <body>

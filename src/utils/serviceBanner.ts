@@ -16,11 +16,11 @@ export function initServiceBannerForAudioFeatures() {
     banner = document.createElement('div');
     banner.style.position = 'fixed';
     banner.style.left = '50%';
-    banner.style.top = '16px';
+    banner.style.top = 'var(--hud-gap-top)';
     banner.style.transform = 'translateX(-50%)';
     banner.style.maxWidth = 'min(92vw, 720px)';
     banner.style.padding = '10px 12px';
-    banner.style.borderRadius = '10px';
+    banner.style.borderRadius = 'var(--hud-radius)';
     banner.style.background = 'rgba(200, 50, 80, 0.9)';
     banner.style.color = '#fff';
     banner.style.border = '1px solid rgba(255,255,255,0.15)';
@@ -29,6 +29,9 @@ export function initServiceBannerForAudioFeatures() {
     banner.style.zIndex = '9999';
     banner.style.pointerEvents = 'auto';
     banner.style.display = 'none';
+    banner.style.boxSizing = 'border-box';
+    banner.style.fontSize = 'var(--hud-font-size)';
+    
 
     const text = document.createElement('span');
     text.style.marginRight = '10px';
@@ -44,7 +47,7 @@ export function initServiceBannerForAudioFeatures() {
     btn.style.border = '1px solid rgba(255,255,255,0.25)';
     btn.style.background = 'rgba(0,0,0,0.25)';
     btn.style.color = '#fff';
-    btn.style.borderRadius = '8px';
+    btn.style.borderRadius = 'var(--hud-radius)';
     btn.onclick = hide;
     banner.appendChild(btn);
 

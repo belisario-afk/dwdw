@@ -11,6 +11,10 @@ import { VisualDirector } from '@controllers/director';
 import { VJ } from '@controllers/vj';
 import { Palette } from '@utils/palette';
 import { Cache } from '@utils/storage';
+import '@ui/responsive.css';
+import { initResponsiveHUD } from '@ui/responsive';
+
+initResponsiveHUD();
 
 declare global {
   interface Window {

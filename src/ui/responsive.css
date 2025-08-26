@@ -1,0 +1,55 @@
+/* Global responsive variables and tweaks for HUD/GUI */
+
+/* Defaults; JS will update --vw/--vh to “real” values at runtime */
+:root {
+  --vw: 1vw;
+  --vh: 1vh;
+
+  /* Safe areas (iOS notch). Fallback to 0 if not supported */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* Core HUD scales */
+  --hud-gap: clamp(8px, 2vmin, 18px);
+  --hud-gap-top: max(16px, calc(var(--safe-top) + var(--hud-gap)));
+  --hud-radius: clamp(8px, 1.2vmin, 14px);
+  --hud-font-size: clamp(13px, calc(0.9rem + 0.2vw), 16px);
+  --hud-z: 9999;
+
+  /* Button + surface styles you can reuse */
+  --hud-surface: color-mix(in srgb, #000 25%, transparent);
+  --hud-border: 1px solid rgba(255,255,255,0.15);
+  --hud-text: #fff;
+  --hud-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+
+/* Device-specific nudges */
+html.device-phone {
+  --hud-font-size: clamp(13px, calc(0.95rem + 0.5vw), 16px);
+  --hud-gap: clamp(8px, 3vmin, 18px);
+}
+html.device-tablet {
+  --hud-font-size: clamp(13px, calc(0.95rem + 0.35vw), 17px);
+}
+html.device-desktop {
+  --hud-font-size: clamp(13px, calc(0.95rem + 0.2vw), 18px);
+}
+
+/* Touch-friendly adjustments */
+html.input-touch {
+  /* Slightly larger touch targets if you want:
+  --hud-gap: max(var(--hud-gap), 12px);
+  */
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
