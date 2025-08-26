@@ -22,7 +22,7 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
   private post: Post = { bloom: 0.8 };
   private accessibility: Accessibility = { epilepsySafe: true, intensityLimit: 0.8, reducedMotion: false, highContrast: false };
 
-  // Lowered default particle count for stability across devices
+  // Safer defaults; still adjustable at runtime with setMacro(...)
   private macros: Record<string, number> = {
     intensity: 0.7,
     bloom: 0.8,
@@ -44,7 +44,7 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
       canvas: this.canvas,
       antialias: false,
       alpha: false,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(innerWidth, innerHeight);
@@ -63,7 +63,7 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
       if (this.sceneA) this.sceneA.update(dt * spd, this);
       if (this.sceneB) this.sceneB.update(dt * spd, this);
 
-      // Clear once per frame; scenes manage their own transparency/opacity
+      // Clear once per frame; scenes handle their own transparency and crossfade opacity
       this.renderer.setClearColor(0x000000, 1);
       this.renderer.clear(true, true, true);
 
@@ -74,12 +74,10 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
         this.sceneA.render(this.renderer, this.camera, 1, this);
       }
 
-      // Removed composer rendering that was drawing a blank scene over outputs
-
       const fpsNow = 1 / Math.max(0.0001, dt);
       this.fpsSmoothed = this.fpsSmoothed * 0.9 + fpsNow * 0.1;
       this.emit('fps', this.fpsSmoothed);
-      if (fpsCb) fpsCb(this.fpsSmoothed);
+      fpsCb?.(this.fpsSmoothed);
     };
     loop();
   }

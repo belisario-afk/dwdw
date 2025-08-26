@@ -14,7 +14,7 @@ class TerrainScene implements VisualScene {
     this.camera.lookAt(0, 0, 0);
 
     const geo = new THREE.PlaneGeometry(8, 8, 256, 256);
-    // Fix: orient plane to XZ so it's visible as ground from a perspective camera
+    // Orient plane to XZ so y is "height"
     geo.rotateX(-Math.PI / 2);
 
     const mat = new THREE.ShaderMaterial({
@@ -33,29 +33,21 @@ class TerrainScene implements VisualScene {
           vH = h*0.5+0.5;
           p.y += h;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        }
-      `,
+        }`,
       fragmentShader: `
         precision highp float;
-        varying float vH;
         uniform vec3 uColA, uColB;
+        varying float vH;
         void main(){
           vec3 col = mix(uColA, uColB, vH);
           gl_FragColor = vec4(col, 1.0);
-        }
-      `
+        }`
     });
-
     this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.receiveShadow = false;
-    this.mesh.castShadow = false;
     this.scene.add(this.mesh);
 
-    // Soft ambient light to lift the terrain
-    const amb = new THREE.AmbientLight(0xffffff, 0.2);
-    this.scene.add(amb);
-
-    // Directional light for subtle shading
+    // Gentle lights for some depth
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.2));
     const dir = new THREE.DirectionalLight(0xffffff, 0.6);
     dir.position.set(2, 3, 2);
     this.scene.add(dir);

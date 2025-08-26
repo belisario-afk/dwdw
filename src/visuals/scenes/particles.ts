@@ -68,7 +68,6 @@ class ParticlesScene implements VisualScene {
       `
     });
     this.mesh = new THREE.Points(geometry, this.material);
-    // avoid culling for large spread
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
   }

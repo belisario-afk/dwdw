@@ -30,7 +30,6 @@ class TypographyScene implements VisualScene {
         uniform float uWeight, uStretch;
         uniform vec2 uResolution;
 
-        // Simple bar glyph that pulses with time
         void main(){
           vec2 res = uResolution;
           vec2 uv = gl_FragCoord.xy / res;
