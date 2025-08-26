@@ -21,39 +21,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Do NOT use cache: pnpm here
+      # Install pnpm first so setup-node's cache: pnpm can find it
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      # Fail-proof: install pnpm globally via npm
-      - name: Install pnpm
-        run: npm i -g pnpm@9
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Verify pnpm
-        run: |
-          which pnpm || true
-          pnpm --version
+        run: pnpm --version
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Install dependencies
-        shell: bash
         run: |
-          set -e
-          if [ -f pnpm-workspace.yaml ]; then
-            W="-w"
-          else
-            W=""
-          fi
-
+          if [ -f pnpm-workspace.yaml ]; then W="-w"; else W=""; fi
           if [ -f pnpm-lock.yaml ]; then
-            echo "Lockfile found. Installing with frozen lockfile..."
             pnpm $W install --frozen-lockfile
           else
-            echo "No lockfile found. Installing without frozen lockfile..."
             pnpm $W install --no-frozen-lockfile
           fi
 
