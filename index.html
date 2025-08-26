@@ -7,8 +7,20 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Provide the proxy URL via meta (works even if some inline scripts are blocked) -->
+    <!-- Provide the proxy URL via meta (extra source for the app to read) -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
+
+    <!-- Failsafe: set window + localStorage ASAP so console logging shows a value -->
+    <script>
+      (function () {
+        try {
+          var u = 'https://dwdw-7a4i.onrender.com'.replace(/\/+$/, '');
+          window.TIKTOK_PROXY_URL = u;
+          // Persist so reloads and the app can read it even if inline scripts are cached/blocked
+          try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
+        } catch {}
+      })();
+    </script>
 
     <style>
       :root {
@@ -84,19 +96,6 @@
         #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
     </style>
-
-    <!-- Early helper: set window.TIKTOK_PROXY_URL from meta so it's defined immediately -->
-    <script>
-      (function() {
-        try {
-          var m = document.querySelector('meta[name="tiktok-proxy"]');
-          var v = m && m.getAttribute('content') || '';
-          if (v && /^https?:\/\//i.test(v)) {
-            window.TIKTOK_PROXY_URL = v.replace(/\/+$/, '');
-          }
-        } catch {}
-      })();
-    </script>
   </head>
   <body>
     <div id="canvas-host" aria-hidden="true"></div>

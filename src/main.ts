@@ -16,45 +16,37 @@ import { initResponsiveHUD } from '@ui/responsive';
 
 initResponsiveHUD();
 
-// Quiet known noisy messages from our own code (cannot suppress Chromium EME warning)
+// Quiet our own noisy logs (browser EME warning is harmless and may still show as a UA message)
 (() => {
   const origWarn = console.warn.bind(console);
   const origError = console.error.bind(console);
   console.warn = (...args: any[]) => {
     const s = String(args[0] ?? '');
-    if (s.includes('robustness level be specified')) return; // filter if emitted by app code
+    if (s.includes('robustness level be specified')) return;
     origWarn(...args);
   };
   console.error = (...args: any[]) => {
     const s = String(args[0] ?? '');
-    if (s.includes('Audio features fetch failed')) return; // keep console clean
+    if (s.includes('Audio features fetch failed')) return;
     origError(...args);
   };
 })();
 
-// Intercept Spotify audio-features 403/429 and return empty JSON to avoid noisy logs in vendor bundles
+// Suppress audio-features 403/429 network noise by short-circuiting before the request
 (() => {
-  const origFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const origFetch: any = window.fetch.bind(window as any);
+  (window as any).fetch = async (input: any, init?: any): Promise<Response> => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
       ? input.toString()
-      : (input as Request).url;
+      : (input && input.url) || '';
 
-    if (url && url.startsWith('https://api.spotify.com/v1/audio-features')) {
-      try {
-        const resp = await origFetch(input as any, init);
-        if (resp.status === 403 || resp.status === 429) {
-          return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
-        }
-        return resp;
-      } catch {
-        // Network/other error: return safe empty object to prevent vendor logs
-        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
+    if (typeof url === 'string' && url.startsWith('https://api.spotify.com/v1/audio-features')) {
+      // Return empty JSON without hitting the network to avoid 403 console noise
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    return origFetch(input as any, init);
+    return origFetch(input, init);
   };
 })();
 
@@ -64,32 +56,36 @@ declare global {
     Spotify: any;
     director?: VisualDirector;
 
-    // Configuration hook (we will set this on boot so console.log shows a value)
     TIKTOK_PROXY_URL?: string;
   }
 }
 
-// Hard fallback if nothing else is present
+// Final fallback if nothing else is present (kept in sync into window and localStorage)
 const DEFAULT_TIKTOK_PROXY = 'https://dwdw-7a4i.onrender.com';
-
-const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
-const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
 function readProxyURL(): string | null {
   const fromWindow = (window as any).TIKTOK_PROXY_URL;
   const fromMeta = document.querySelector('meta[name="tiktok-proxy"]')?.getAttribute('content');
-  const fromLS = localStorage.getItem('TIKTOK_PROXY_URL');
+  let fromLS: string | null = null;
+  try { fromLS = localStorage.getItem('TIKTOK_PROXY_URL'); } catch {}
+
   const v = String(fromWindow || fromMeta || fromLS || DEFAULT_TIKTOK_PROXY || '').trim();
   if (v && /^https?:\/\//i.test(v)) return v.replace(/\/+$/, '');
   return null;
 }
 
+const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
+const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
+
 (async function boot() {
   ensureRoute();
 
-  // Ensure window.TIKTOK_PROXY_URL is always defined at runtime
-  const proxy = readProxyURL();
-  if (proxy) (window as any).TIKTOK_PROXY_URL = proxy;
+  // Ensure window + localStorage have the proxy so console shows it and it persists
+  const resolvedProxy = readProxyURL();
+  if (resolvedProxy) {
+    (window as any).TIKTOK_PROXY_URL = resolvedProxy;
+    try { localStorage.setItem('TIKTOK_PROXY_URL', resolvedProxy); } catch {}
+  }
 
   const cache = new Cache('dwdw-v1');
 
@@ -112,10 +108,9 @@ function readProxyURL(): string | null {
   const player = new PlayerController(auth, api);
   const director = new VisualDirector(api);
   const vj = new VJ(director, player);
-
   (window as any).director = director;
 
-  // Optional assets for a scene
+  // Optional assets for Emo Slashes scene
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
 
@@ -239,7 +234,7 @@ function readProxyURL(): string | null {
   auth.on('tokens', (t) => { if (t) { director.setFeaturesEnabled(true); startAuthedFlows(); } else stopAuthedFlows(); });
 
   // ————————————————————————————————————————————————————————————————
-  // TikTok livestream chat -> Spotify queue commands
+  // TikTok livestream chat -> Spotify queue commands (proxy-only)
   // ————————————————————————————————————————————————————————————————
 
   type QueueItem = {
@@ -294,7 +289,7 @@ function readProxyURL(): string | null {
   function setTTStatus(text: string) { if (ttStatusEl) ttStatusEl.textContent = text; }
   function setProxyLabel() {
     const p = readProxyURL();
-    if (p) (window as any).TIKTOK_PROXY_URL = p; // keep window var in sync
+    if (p) (window as any).TIKTOK_PROXY_URL = p;
     if (ttProxyEl) ttProxyEl.textContent = `Proxy: ${p || 'not set'}`;
   }
   function setLastAction(text: string) { if (lastActionEl) lastActionEl.textContent = text; }
@@ -386,7 +381,7 @@ function readProxyURL(): string | null {
       const next = prompt('Enter proxy base URL (https://… no trailing slash):', current) || '';
       const val = next.trim().replace(/\/+$/, '');
       if (/^https?:\/\//i.test(val)) {
-        localStorage.setItem('TIKTOK_PROXY_URL', val);
+        try { localStorage.setItem('TIKTOK_PROXY_URL', val); } catch {}
         (window as any).TIKTOK_PROXY_URL = val;
         setProxyLabel();
         setTTStatus('Proxy set.');
@@ -395,7 +390,9 @@ function readProxyURL(): string | null {
       }
     };
     btnClearProxy.onclick = () => {
-      localStorage.removeItem('TIKTOK_PROXY_URL');
+      try { localStorage.removeItem('TIKTOK_PROXY_URL'); } catch {}
+      // Fall back to meta/default immediately
+      (window as any).TIKTOK_PROXY_URL = readProxyURL() || '';
       setProxyLabel();
       setTTStatus('Stored proxy cleared. Using meta/default.');
     };
@@ -405,7 +402,7 @@ function readProxyURL(): string | null {
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
-        await tiktokConnectViaProxy(uniqueId); // proxy-only, no browser fallback
+        await tiktokConnectViaProxy(uniqueId); // proxy-only
       } catch (e: any) {
         setTTStatus(`Connect failed: ${e?.message || e}`);
       }
@@ -471,6 +468,15 @@ function readProxyURL(): string | null {
     if (!resp.ok) throw new Error(`Spotify PUT ${resp.status} ${await resp.text()}`);
     return resp.json().catch(() => null as any);
   }
+
+  // Commands
+  type QueueItem = {
+    uri: string;
+    title: string;
+    artist: string;
+    albumArtUrl?: string;
+    requestedBy?: string;
+  };
 
   async function searchTrackTop(query: string): Promise<QueueItem | null> {
     const data = await spotifyGET<any>(`/search?type=track&limit=5&q=${encodeURIComponent(query)}`);
@@ -639,8 +645,7 @@ function readProxyURL(): string | null {
 
     const base = readProxyURL();
     if (!base) throw new Error('Proxy URL not configured');
-    (window as any).TIKTOK_PROXY_URL = base; // keep it visible in console
-
+    (window as any).TIKTOK_PROXY_URL = base;
     setProxyLabel();
     setTTStatus('Connecting via proxy…');
 
