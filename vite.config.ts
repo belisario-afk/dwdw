@@ -1,25 +1,29 @@
 import { defineConfig } from 'vite';
-import path from 'node:path';
+import { fileURLToPath, URL } from 'url';
 
-const r = (p: string) => path.resolve(process.cwd(), p);
-
-export default defineConfig({base: '/', plugins: [react()] })
-  base: '/dwdw/',
-  resolve: {
-    alias: [
-      { find: '@auth/pkce', replacement: r('src/auth/pkce.ts') },
-      { find: '@auth', replacement: r('src/auth') },
-      { find: '@spotify', replacement: r('src/spotify') },
-      { find: '@audio', replacement: r('src/audio') },
-      { find: '@visuals', replacement: r('src/visuals') },
-      { find: '@controllers', replacement: r('src/controllers') },
-      { find: '@ui', replacement: r('src/ui') },
-      { find: '@utils', replacement: r('src/utils') }
-    ]
-  },
-  server: { host: '127.0.0.1', port: 5173 },
-  build: {
-    target: 'es2020',
-    sourcemap: true
+export default defineConfig(async () => {
+  // Optional React plugin: will be used if installed, otherwise skipped
+  let reactPlugin: any = null;
+  try {
+    const mod = await import('@vitejs/plugin-react');
+    reactPlugin = mod.default();
+  } catch {
+    // plugin not installed; proceed without it
   }
+
+  return {
+    base: '/',
+    plugins: reactPlugin ? [reactPlugin] : [],
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        '@utils': fileURLToPath(new URL('./src/utils', import.meta.url)),
+        '@spotify': fileURLToPath(new URL('./src/spotify', import.meta.url)),
+        '@controllers': fileURLToPath(new URL('./src/controllers', import.meta.url)),
+        '@auth': fileURLToPath(new URL('./src/auth', import.meta.url)),
+        // Add this so "@ui/ui" resolves to "src/ui/ui"
+        '@ui': fileURLToPath(new URL('./src/ui', import.meta.url)),
+      },
+    },
+  };
 });
