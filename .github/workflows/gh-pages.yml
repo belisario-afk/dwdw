@@ -28,12 +28,20 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      # Ensure pnpm is on PATH
+      # Option A: install pnpm via the official action (simple and reliable)
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
           run_install: false
+
+      # Option B (alternative): use Corepack instead of the action
+      # - name: Enable Corepack and activate pnpm
+      #   shell: bash
+      #   run: |
+      #     corepack enable
+      #     corepack prepare pnpm@9.12.0 --activate
+      #     pnpm --version
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
