@@ -1,3 +1,5 @@
+import './fonts';
+import './styles/lyrics.css';
 import { ensureRoute } from './router';
 import { Auth } from '@auth/pkce';
 import { SpotifyAPI } from '@spotify/api';

@@ -1,5 +1,4 @@
 :root {
-  /* Default lyric font (you can switch this at runtime) */
   --lyrics-font: 'Bebas Neue', Impact, system-ui, sans-serif;
   --lyrics-weight: 400;
   --lyrics-color: #fff;
@@ -11,12 +10,10 @@
   color: var(--lyrics-color);
   line-height: 1.15;
   letter-spacing: 0.5px;
-  /* Tweak these as needed */
   font-size: clamp(20px, 5vw, 56px);
   text-align: center;
 }
 
-/* Useful helpers for readability over busy backgrounds */
 .lyrics--outline {
   text-shadow:
     1px 1px 0 rgba(0,0,0,0.9),
