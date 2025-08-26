@@ -31,9 +31,10 @@ jobs:
       - name: Enable Corepack and activate pnpm
         shell: bash
         run: |
+          set -e
           corepack enable
           corepack prepare pnpm@9.12.0 --activate
-          pnpm --version
+          echo "pnpm version: $(pnpm --version)"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
