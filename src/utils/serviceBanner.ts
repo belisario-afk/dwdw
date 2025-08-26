@@ -1,4 +1,4 @@
-// Tiny UI helper: shows a dismissible banner if audio-features fail (e.g., 403).
+// Tiny UI helper: shows a dismissible banner if audio-features fail (e.g., 401/403).
 import { setAudioFeaturesErrorHandler } from '@/lib/spotifyAudioFeatures';
 
 export function initServiceBannerForAudioFeatures() {
@@ -31,7 +31,7 @@ export function initServiceBannerForAudioFeatures() {
     return bannerEl;
   }
 
-  setAudioFeaturesErrorHandler(({ status, detail }) => {
+  setAudioFeaturesErrorHandler(({ status }) => {
     if (closed) return;
     const el = ensureBanner();
     const msg = el.querySelector('.service-banner__msg') as HTMLDivElement;
@@ -43,9 +43,6 @@ export function initServiceBannerForAudioFeatures() {
       ? 'Network error reaching Spotify audio features. Using defaults.'
       : `Audio features request failed (${status}). Using defaults.`;
     msg.textContent = reason;
-    // Optional: add a data-status for styling/tests
     el.setAttribute('data-status', String(status));
-    // Keep it visible; if you prefer auto-hide, uncomment below:
-    // setTimeout(() => { if (!closed) el.remove(); }, 8000);
   });
 }
