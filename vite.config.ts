@@ -2,16 +2,13 @@ import { defineConfig } from 'vite';
 import { fileURLToPath, URL } from 'url';
 
 export default defineConfig(async ({ mode }) => {
-  // Optional React plugin: used if installed, skipped if not
   let reactPlugin: any = null;
   try {
     const mod = await import('@vitejs/plugin-react');
     reactPlugin = mod.default();
-  } catch {
-    // not using React or plugin not installed
-  }
+  } catch {}
 
-  // Relative base in production so assets are referenced as "./assets/..."
+  // Use relative base in production so assets are ./assets/... (works on streamqueue.live and /dwdw/)
   const base = process.env.BASE_URL ?? (mode === 'production' ? './' : '/');
 
   return {
