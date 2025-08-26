@@ -20,6 +20,7 @@ initResponsiveHUD();
 (() => {
   const origWarn = console.warn.bind(console);
   const origError = console.error.bind(console);
+  const origLog = console.log.bind(console);
   console.warn = (...args: any[]) => {
     const s = String(args[0] ?? '');
     // Spotify EME robustness warning (harmless)
@@ -29,8 +30,13 @@ initResponsiveHUD();
   console.error = (...args: any[]) => {
     const s = String(args[0] ?? '');
     // Some regions/tracks return 403 on audio-features (non-fatal)
-    if (s.includes('Audio features fetch failed 403')) return;
+    if (s.includes('Audio features fetch failed')) return;
     origError(...args);
+  };
+  console.log = (...args: any[]) => {
+    const s = String(args[0] ?? '');
+    if (s.includes('Audio features fetch failed')) return;
+    origLog(...args);
   };
 })();
 
@@ -40,12 +46,14 @@ declare global {
     Spotify: any;
     director?: VisualDirector;
 
-    // Optional (browser fallback – we’ll avoid it if proxy is set)
+    // Optional (browser fallback; we disable it unless explicitly turned on)
     TikTokLiveConnector?: any;
     WebcastPushConnection?: any;
 
     // Set in index.html
     TIKTOK_PROXY_URL?: string;
+    FORCE_TIKTOK_PROXY?: boolean;        // default true (use proxy only)
+    ENABLE_BROWSER_FALLBACK?: boolean;   // default false (never use in-browser connector)
   }
 }
 
@@ -197,7 +205,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   function stopAuthedFlows() {
     if (!started) return;
     started = false;
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (pollTimer) { clearInterval(pollTimer); } 
+    pollTimer = null;
     lastTrackId = null;
   }
   if (auth.getAccessToken()) startAuthedFlows();
@@ -240,6 +249,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   let queuePanelEl: HTMLDivElement | null = null;
   let queueListEl: HTMLDivElement | null = null;
   let ttStatusEl: HTMLSpanElement | null = null;
+  let ttProxyEl: HTMLSpanElement | null = null;
   let lastActionEl: HTMLDivElement | null = null;
   let queuePanelOpen = false;
 
@@ -256,6 +266,10 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     `).join('');
   }
   function setTTStatus(text: string) { if (ttStatusEl) ttStatusEl.textContent = text; }
+  function setProxyLabel() {
+    const p = getTikTokProxy();
+    if (ttProxyEl) ttProxyEl.textContent = `Proxy: ${p || 'not set'}`;
+  }
   function setLastAction(text: string) { if (lastActionEl) lastActionEl.textContent = text; }
 
   function toggleQueuePanel() {
@@ -298,7 +312,11 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
           <input id="tiktok-username" type="text" placeholder="TikTok username (uniqueId or profile URL)" style="flex:1 1 160px; min-width:160px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
           <button id="btn-tt-connect">Connect</button>
           <button id="btn-tt-disconnect">Disconnect</button>
-          <span id="tt-status" style="color:#a0a0b2; font-size:12px;">Not connected</span>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; color:#9aa; font-size:12px;">
+          <span id="tt-status">Not connected</span>
+          <span id="tt-proxy">Proxy: —</span>
         </div>
 
         <div style="color:#9aa; font-size:12px;">
@@ -320,11 +338,14 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     queuePanelEl = panel;
     queueListEl = panel.querySelector('#queue-list') as HTMLDivElement;
     ttStatusEl = panel.querySelector('#tt-status') as HTMLSpanElement;
+    ttProxyEl = panel.querySelector('#tt-proxy') as HTMLSpanElement;
     lastActionEl = panel.querySelector('#last-action') as HTMLDivElement;
 
     const btnConnect = panel.querySelector('#btn-tt-connect') as HTMLButtonElement;
     const btnDisconnect = panel.querySelector('#btn-tt-disconnect') as HTMLButtonElement;
     const inputUser = panel.querySelector('#tiktok-username') as HTMLInputElement;
+
+    setProxyLabel();
 
     btnConnect.onclick = async () => {
       const raw = inputUser.value.trim();
@@ -332,12 +353,20 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
         const proxy = getTikTokProxy();
+        const forceProxy = getForceProxy();
+        const allowFallback = getBrowserFallback();
+
         if (proxy) {
+          setTTStatus(`Connecting via proxy…`);
           await tiktokConnectViaProxy(uniqueId);
           setTTStatus(`Connected via proxy to @${uniqueId}`);
+        } else if (forceProxy) {
+          setTTStatus('Proxy URL not configured. Set window.TIKTOK_PROXY_URL in index.html.');
+        } else if (allowFallback) {
+          await tiktokConnectBrowser(uniqueId);
+          setTTStatus(`Connected (browser) to @${uniqueId}`);
         } else {
-          await tiktokConnectBrowser(uniqueId); // fallback
-          setTTStatus(`Connected to @${uniqueId}`);
+          setTTStatus('Proxy URL not configured and browser fallback disabled.');
         }
       } catch (e: any) {
         console.debug('TikTok connect failed', e);
@@ -491,13 +520,12 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     try {
       await addToQueue(item.uri);
       setLastAction(`Queued: ${item.title} • ${item.artist}${requestedBy ? ` (by ${requestedBy})` : ''}`);
-    } catch (e) {
+    } catch {
       queueState.items = queueState.items.filter(
         (i) => !(i.uri === optimistic.uri && i.requestedBy === optimistic.requestedBy)
       );
       renderQueueList();
       setLastAction(`Failed to queue track`);
-      console.debug('Queue add failed', e);
     }
   }
 
@@ -532,13 +560,12 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
           setLastAction(`Volume set to ${Math.round(parsed.value)}% (by ${user})`);
           break;
       }
-    } catch (e) {
-      console.debug('Command failed', e);
+    } catch {
       setLastAction(`Command failed`);
     }
   }
 
-  // ——— TikTok bridge: proxy-first, browser fallback ———
+  // ——— TikTok bridge: proxy-first, browser fallback (disabled by default) ———
 
   function normalizeTikTokId(input: string): string | null {
     if (!input) return null;
@@ -560,15 +587,23 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     if (fromWindow && typeof fromWindow === 'string' && fromWindow.startsWith('http')) return fromWindow.replace(/\/+$/, '');
     return null;
   }
+  function getForceProxy(): boolean {
+    const v = (window as any).FORCE_TIKTOK_PROXY;
+    return v === undefined ? true : !!v;
+  }
+  function getBrowserFallback(): boolean {
+    const v = (window as any).ENABLE_BROWSER_FALLBACK;
+    return !!v;
+  }
 
   let ttConnBrowser: any | null = null;
   let ttEventSource: EventSource | null = null;
 
   async function checkProxyHealth(base: string): Promise<void> {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 5000);
+    const t = setTimeout(() => ctl.abort(), 6000);
     try {
-      const res = await fetch(`${base}/health`, { signal: ctl.signal });
+      const res = await fetch(`${base}/health`, { signal: ctl.signal, cache: 'no-store' });
       if (!res.ok) throw new Error(`${res.status}`);
       const j = await res.json().catch(() => ({}));
       if (!j || j.ok !== true) throw new Error('health not ok');
@@ -643,8 +678,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   async function tiktokConnectBrowser(username: string) {
     await tiktokDisconnect();
     const ok = await ensureTikTokConnectorBrowser();
-    if (!ok) throw new Error('TikTok connector unavailable in this browser');
-
+    if (!ok) throw new Error('Browser connector not available');
     const Ctor =
       (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
       (window as any).WebcastPushConnection;
@@ -661,7 +695,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
     conn.on('disconnected', () => setTTStatus('Disconnected'));
     conn.on('error', (e: any) => {
-      console.debug('TikTok connection error:', e?.message || e);
       setTTStatus(`Error: ${e?.message || 'unknown'}`);
     });
 
