@@ -10,16 +10,6 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Preload TikTok connector (fallback to jsDelivr if unpkg fails) -->
-    <script
-      data-tiktok-preload
-      src="https://unpkg.com/tiktok-live-connector/dist/browser.js"
-      async
-      defer
-      crossorigin="anonymous"
-      onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tiktok-live-connector/dist/browser.js';s.async=true;s.defer=true;s.crossOrigin='anonymous';document.head.appendChild(s);}())"
-    ></script>
-
     <style>
       :root {
         --bg: #0b0b0f;
@@ -112,50 +102,25 @@
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
-      #panels {
-        position: fixed;
-        right: 0;
-        top: 0;
-        bottom: 0;
-        pointer-events: none;
-        z-index: 200;
-      }
-      #panels .panel {
-        pointer-events: auto;
-        background: #121219;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 10px;
-        color: var(--fg);
-      }
-      #panels .panel.hidden { display: none; }
+      #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
+      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
 
       #screensaver {
-        position: fixed;
-        inset: 0;
+        position: fixed; inset: 0;
         background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 300ms ease;
-        z-index: 150;
+        opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150;
       }
       #screensaver.active { opacity: 1; }
 
       @media (max-width: 768px) {
         .toolbar {
-          top: auto;
-          bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left));
-          right: max(10px, var(--safe-right));
-          justify-content: center;
-          gap: 8px;
-          padding: 10px;
-          border-radius: calc(var(--hud-radius) + 2px);
+          top: auto; bottom: max(10px, var(--safe-bottom));
+          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
+          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
         }
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
-
         .left, .center, .right { flex-wrap: wrap; gap: 8px; }
         #seek { width: 100%; max-width: 100%; }
         #volume { width: min(55vw, 240px); }
@@ -166,11 +131,12 @@
         .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
         #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
-
-      @media (prefers-reduced-motion: reduce) {
-        * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
-      }
     </style>
+
+    <script>
+      // Replace with your deployed proxy URL
+      window.TIKTOK_PROXY_URL = 'https://dwdw-tiktok-proxy.onrender.com';
+    </script>
   </head>
   <body>
     <div id="canvas-host" aria-hidden="true"></div>

@@ -1,3 +1,5 @@
+
+```yaml name=.github/workflows/pages.yml
 name: Deploy to GitHub Pages
 
 on:
@@ -10,7 +12,6 @@ permissions:
   pages: write
   id-token: write
 
-# Prevent concurrent deployments and artifact races
 concurrency:
   group: "pages"
   cancel-in-progress: true
