@@ -21,13 +21,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Do NOT enable cache: pnpm here; it invokes pnpm before it's installed
+      # Do NOT enable cache: pnpm here; that runs pnpm before it's installed
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # Ensure pnpm is on PATH
+      # Put pnpm on PATH (reliable)
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -37,7 +37,7 @@ jobs:
       - name: Verify pnpm
         run: pnpm --version
 
-      # Optional: cache pnpm store after pnpm is available
+      # Optional: cache pnpm store (now that pnpm exists)
       - name: Resolve pnpm store path
         id: pnpm-store
         run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
@@ -62,7 +62,6 @@ jobs:
           else
             W=""
           fi
-
           if [ -f pnpm-lock.yaml ]; then
             echo "Lockfile found. Installing with frozen lockfile..."
             pnpm $W install --frozen-lockfile
