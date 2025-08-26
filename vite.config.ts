@@ -1,18 +1,21 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath, URL } from 'url';
 
-export default defineConfig(async () => {
-  // Optional React plugin: will be used if installed, otherwise skipped
+export default defineConfig(async ({ mode }) => {
+  // Optional React plugin: used if installed, skipped if not
   let reactPlugin: any = null;
   try {
     const mod = await import('@vitejs/plugin-react');
     reactPlugin = mod.default();
   } catch {
-    // plugin not installed; proceed without it
+    // not using React or plugin not installed
   }
 
+  // Relative base in production so assets are referenced as "./assets/..."
+  const base = process.env.BASE_URL ?? (mode === 'production' ? './' : '/');
+
   return {
-    base: '/',
+    base,
     plugins: reactPlugin ? [reactPlugin] : [],
     resolve: {
       alias: {
@@ -21,7 +24,6 @@ export default defineConfig(async () => {
         '@spotify': fileURLToPath(new URL('./src/spotify', import.meta.url)),
         '@controllers': fileURLToPath(new URL('./src/controllers', import.meta.url)),
         '@auth': fileURLToPath(new URL('./src/auth', import.meta.url)),
-        // Add this so "@ui/ui" resolves to "src/ui/ui"
         '@ui': fileURLToPath(new URL('./src/ui', import.meta.url)),
       },
     },
