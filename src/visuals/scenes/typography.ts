@@ -14,20 +14,25 @@ class TypographyScene implements VisualScene {
     const geo = new THREE.PlaneGeometry(2, 2);
     this.mat = new THREE.ShaderMaterial({
       transparent: true,
+      depthWrite: false,
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: new THREE.Color(manager.getPalette().dominant) },
         uBg: { value: new THREE.Color('#000000') },
         uWeight: { value: 0.5 },
-        uStretch: { value: 1.0 }
+        uStretch: { value: 1.0 },
+        uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
       },
       fragmentShader: `
         precision highp float;
         uniform float uTime;
         uniform vec3 uColor, uBg;
         uniform float uWeight, uStretch;
+        uniform vec2 uResolution;
+
+        // Simple bar glyph that pulses with time
         void main(){
-          vec2 res = vec2(${window.innerWidth.toFixed(1)}, ${window.innerHeight.toFixed(1)});
+          vec2 res = uResolution;
           vec2 uv = gl_FragCoord.xy / res;
           float y = 0.5 + 0.2*sin(uTime*0.5);
           float band = smoothstep(y-0.02*uStretch, y, uv.y) - smoothstep(y, y+0.02*uStretch, uv.y);
@@ -50,12 +55,27 @@ class TypographyScene implements VisualScene {
       this.mat.uniforms.uStretch.value = 1.0 + Math.sin(this.t * 1.3) * 0.3;
     }
   }
-  render(renderer: THREE.WebGLRenderer): void {
+
+  render(renderer: THREE.WebGLRenderer, _camera: THREE.Camera, weight: number): void {
+    if (this.mat) this.mat.opacity = Math.max(0, Math.min(1, weight));
     renderer.render(this.scene, this.camera);
   }
+
+  resize(w: number, h: number): void {
+    if (this.mat) {
+      (this.mat.uniforms.uResolution.value as THREE.Vector2).set(w, h);
+    }
+  }
+
   dispose(): void {
     (this.quad?.geometry as any)?.dispose?.();
     (this.quad?.material as any)?.dispose?.();
+  }
+
+  setPalette(p: { dominant: string; secondary: string; colors: string[] }) {
+    if (this.mat) {
+      (this.mat.uniforms.uColor.value as THREE.Color).set(p.dominant);
+    }
   }
 }
 

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { EffectComposer, RenderPass } from 'postprocessing';
 import { loadScene } from '@visuals/scenes/loader';
 import { VisualScene, VisualSceneName } from '@visuals/scenes/types';
 import { Emitter } from '@utils/emitter';
@@ -11,7 +10,6 @@ type Accessibility = { epilepsySafe?: boolean; intensityLimit?: number; reducedM
 export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
-  private composer: EffectComposer;
   private camera: THREE.PerspectiveCamera;
   private sceneA?: VisualScene;
   private sceneB?: VisualScene;
@@ -24,7 +22,17 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
   private post: Post = { bloom: 0.8 };
   private accessibility: Accessibility = { epilepsySafe: true, intensityLimit: 0.8, reducedMotion: false, highContrast: false };
 
-  private macros: Record<string, number> = { intensity: 0.7, bloom: 0.8, glitch: 0, speed: 1, raymarchSteps: 512, particleMillions: 2, fluidIters: 35 };
+  // Lowered default particle count for stability across devices
+  private macros: Record<string, number> = {
+    intensity: 0.7,
+    bloom: 0.8,
+    glitch: 0,
+    speed: 1,
+    raymarchSteps: 512,
+    particleMillions: 0.5,
+    fluidIters: 35
+  };
+
   private palette = { dominant: '#22cc88', secondary: '#cc2288', colors: ['#22cc88', '#cc2288', '#2266cc', '#ffaa00'] };
 
   constructor(host: HTMLElement, fpsCb?: (fps: number) => void) {
@@ -32,15 +40,17 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
     this.canvas = document.createElement('canvas');
     host.appendChild(this.canvas);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: false,
+      alpha: false,
+      powerPreference: 'high-performance'
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.autoClear = false;
 
     this.camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 1000);
-
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(new THREE.Scene(), this.camera));
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -52,8 +62,10 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
 
       if (this.sceneA) this.sceneA.update(dt * spd, this);
       if (this.sceneB) this.sceneB.update(dt * spd, this);
+
+      // Clear once per frame; scenes manage their own transparency/opacity
       this.renderer.setClearColor(0x000000, 1);
-      this.renderer.clear();
+      this.renderer.clear(true, true, true);
 
       if (this.sceneA && this.sceneB && this.mix > 0) {
         this.sceneA.render(this.renderer, this.camera, 1 - this.mix, this);
@@ -62,25 +74,18 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
         this.sceneA.render(this.renderer, this.camera, 1, this);
       }
 
-      this.composer.render(dt);
+      // Removed composer rendering that was drawing a blank scene over outputs
 
       const fpsNow = 1 / Math.max(0.0001, dt);
       this.fpsSmoothed = this.fpsSmoothed * 0.9 + fpsNow * 0.1;
       this.emit('fps', this.fpsSmoothed);
-      fpsCb?.(this.fpsSmoothed);
-
-      if (this.fpsSmoothed < 50) {
-        this.macros.fluidIters = Math.max(10, this.macros.fluidIters - 1);
-        this.macros.particleMillions = Math.max(1, this.macros.particleMillions - 0.1);
-      } else if (this.fpsSmoothed > 70) {
-        this.macros.fluidIters = Math.min(70, this.macros.fluidIters + 1);
-        this.macros.particleMillions = Math.min(5, this.macros.particleMillions + 0.1);
-      }
+      if (fpsCb) fpsCb(this.fpsSmoothed);
     };
     loop();
   }
 
   getCanvas() { return this.canvas; }
+
   getNextSceneName(): VisualSceneName {
     const all: VisualSceneName[] = ['Particles', 'Fluid', 'Tunnel', 'Terrain', 'Typography'];
     const current = this.active === 'A' ? this.sceneA?.name : this.sceneB?.name;
@@ -99,7 +104,7 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
     await this.loadScene(name);
     this.mix = 0;
     const start = performance.now();
-    const dur = seconds * 1000;
+    const dur = Math.max(0.001, seconds) * 1000;
     const tick = () => {
       const t = (performance.now() - start) / dur;
       this.mix = Math.min(1, t);
@@ -124,6 +129,7 @@ export class SceneManager extends Emitter<{ 'fps': (fps: number) => void }> {
   setPalette(p: { dominant: string; secondary: string; colors: string[] }) {
     this.palette = p;
     this.sceneA?.setPalette?.(p, this);
+    this.sceneB?.setPalette?.(p, this);
   }
 
   setQuality(q: Partial<Quality>) {
