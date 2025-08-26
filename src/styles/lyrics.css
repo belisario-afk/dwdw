@@ -1,0 +1,33 @@
+:root {
+  /* Default lyric font (you can switch this at runtime) */
+  --lyrics-font: 'Bebas Neue', Impact, system-ui, sans-serif;
+  --lyrics-weight: 400;
+  --lyrics-color: #fff;
+}
+
+.lyrics {
+  font-family: var(--lyrics-font);
+  font-weight: var(--lyrics-weight);
+  color: var(--lyrics-color);
+  line-height: 1.15;
+  letter-spacing: 0.5px;
+  /* Tweak these as needed */
+  font-size: clamp(20px, 5vw, 56px);
+  text-align: center;
+}
+
+/* Useful helpers for readability over busy backgrounds */
+.lyrics--outline {
+  text-shadow:
+    1px 1px 0 rgba(0,0,0,0.9),
+    -1px -1px 0 rgba(0,0,0,0.9),
+    -1px 1px 0 rgba(0,0,0,0.9),
+    1px -1px 0 rgba(0,0,0,0.9),
+    0 0 6px rgba(0,0,0,.35);
+}
+
+.lyrics--glow {
+  text-shadow:
+    0 0 10px rgba(255,255,255,.7),
+    0 0 20px rgba(255,255,255,.5);
+}

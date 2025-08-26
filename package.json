@@ -10,6 +10,11 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/bangers": "^5.2.6",
+    "@fontsource/bebas-neue": "^5.2.6",
+    "@fontsource/black-ops-one": "^5.2.6",
+    "@fontsource/pacifico": "^5.2.6",
+    "@fontsource/press-start-2p": "^5.2.6",
     "idb-keyval": "^6.2.1",
     "postprocessing": "^6.35.5",
     "simplex-noise": "^4.0.1",
