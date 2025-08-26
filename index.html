@@ -111,8 +111,8 @@
       })();
     </script>
 
-    <!-- External preboot (optional): console-noise filters, idempotent with inline -->
-    <script src="./preboot.js?v=2025-08-26-14"></script>
+    <!-- External preboot served from public/ so Vite won't try to bundle it -->
+    <script src="/preboot.js?v=2025-08-26-14"></script>
 
     <style>
       :root {
@@ -153,7 +153,7 @@
         overflow: hidden;
       }
 
-      /* —— Toolbar / HUD (flex-based for iOS robustness) ————————————— */
+      /* —— Toolbar / HUD — */
       .toolbar {
         position: fixed;
         top: max(12px, var(--safe-top));
@@ -173,7 +173,7 @@
         border: var(--hud-border);
         border-radius: var(--hud-radius);
         box-shadow: var(--hud-shadow);
-        z-index: 9999; /* ensure on top of visuals/panels */
+        z-index: 9999;
         pointer-events: auto;
 
         -webkit-tap-highlight-color: transparent;
@@ -186,12 +186,10 @@
         min-width: 0;
       }
 
-      /* Let sections balance space on wide screens, wrap on narrow */
       .left  { flex: 1 1 320px; justify-content: flex-start; }
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
-      /* Prevent children from shrinking into each other */
       .left > *, .center > *, .right > * {
         flex: 0 0 auto;
         min-width: 0;
@@ -222,7 +220,6 @@
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
-      /* Panels container */
       #panels {
         position: fixed;
         right: 0;
@@ -241,7 +238,6 @@
       }
       #panels .panel.hidden { display: none; }
 
-      /* Screensaver dimmer */
       #screensaver {
         position: fixed;
         inset: 0;
@@ -253,83 +249,40 @@
       }
       #screensaver.active { opacity: 1; }
 
-      /* —— Mobile / small windows ——————————————————————————— */
       @media (max-width: 768px) {
         .toolbar {
-          /* Bottom “thumb-reachable” pill, safe-area aware */
           top: auto;
           bottom: max(10px, var(--safe-bottom));
           left: max(10px, var(--safe-left));
           right: max(10px, var(--safe-right));
-
           justify-content: center;
           gap: 8px;
           padding: 10px;
           border-radius: calc(var(--hud-radius) + 2px);
         }
-
-        /* Stack sections in order: center, left, right */
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
-
-        .left, .center, .right {
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        /* Seek spans full row */
-        #seek {
-          width: 100%;
-          max-width: 100%;
-        }
-
-        /* Volume sensible width on mobile */
-        #volume {
-          width: min(55vw, 240px);
-        }
-
-        /* Hide verbose labels/telemetry to save space */
-        .label--long,
-        #gpu-label,
-        #fps-label {
-          display: none !important;
-        }
+        .left, .center, .right { flex-wrap: wrap; gap: 8px; }
+        #seek { width: 100%; max-width: 100%; }
+        #volume { width: min(55vw, 240px); }
+        .label--long, #gpu-label, #fps-label { display: none !important; }
       }
 
-      /* Ultra-compact phones */
       @media (max-width: 380px) {
-        .toolbar {
-          left: max(8px, var(--safe-left));
-          right: max(8px, var(--safe-right));
-          gap: 6px;
-          padding: 8px;
-        }
-
-        /* De-emphasize rarely used actions on very tight screens */
-        #btn-crossfade,
-        #btn-vj,
-        #btn-quality,
-        #btn-accessibility,
-        #btn-record {
-          display: none !important;
-        }
+        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
+        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
 
-      /* Respect reduced motion */
       @media (prefers-reduced-motion: reduce) {
-        * {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-          scroll-behavior: auto !important;
-        }
+        * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
       }
     </style>
 
-    <!-- Load your built bundle AFTER preboot so intercepts are active -->
-    <script type="module" crossorigin src="./assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index.css">
+    <!-- Vite entry: point at your source, not built outputs -->
+    <script type="module" src="/src/main.ts"></script>
+    <!-- If you keep a global CSS file under src/, let Vite process it -->
+    <link rel="stylesheet" href="/src/style.css">
   </head>
   <body>
     <div id="canvas-host" aria-hidden="true"></div>
@@ -373,7 +326,6 @@
           <option value="Emo Slashes">Emo Slashes</option>
         </select>
 
-        <!-- Lyrics font picker -->
         <label class="label label--long" for="lyrics-font">Font</label>
         <select id="lyrics-font" title="Lyrics font">
           <option>Bebas Neue</option>
