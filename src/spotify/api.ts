@@ -53,4 +53,17 @@ export class SpotifyAPI {
   }
 
   async getAudioAnalysis(trackId: string) { return this.request('GET', `/audio-analysis/${trackId}`); }
+
+  // NEW: Search for tracks
+  async searchTracks(query: string, limit = 5) {
+    const q = encodeURIComponent(query);
+    return this.request('GET', `/search?type=track&limit=${limit}&q=${q}`);
+  }
+
+  // NEW: Add to queue (optionally target specific device)
+  async addToQueue(uri: string, deviceId?: string) {
+    const qs = new URLSearchParams({ uri });
+    if (deviceId) qs.append('device_id', deviceId);
+    return this.request('POST', `/me/player/queue?${qs.toString()}`);
+  }
 }
