@@ -9,8 +9,6 @@
     <title>dwdw</title>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <!-- Removed alternate .ico to avoid 404. Add it back if you add public/favicon.ico -->
-    <!-- <link rel="alternate icon" href="/favicon.ico" /> -->
 
     <style>
       :root {
@@ -20,7 +18,6 @@
         --accent: #22cc88;
         --accent-2: #cc2288;
 
-        /* HUD tokens */
         --hud-gap: clamp(8px, 1.8vmin, 14px);
         --hud-radius: clamp(10px, 2vmin, 14px);
         --hud-font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -28,7 +25,6 @@
         --hud-border: 1px solid rgba(255, 255, 255, 0.06);
         --hud-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 
-        /* Safe areas */
         --safe-top: env(safe-area-inset-top, 0px);
         --safe-right: env(safe-area-inset-right, 0px);
         --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -51,7 +47,6 @@
         overflow: hidden;
       }
 
-      /* —— Toolbar / HUD (flex-based for iOS robustness) ————————————— */
       .toolbar {
         position: fixed;
         top: max(12px, var(--safe-top));
@@ -71,7 +66,7 @@
         border: var(--hud-border);
         border-radius: var(--hud-radius);
         box-shadow: var(--hud-shadow);
-        z-index: 9999; /* ensure on top of visuals/panels */
+        z-index: 9999;
         pointer-events: auto;
 
         -webkit-tap-highlight-color: transparent;
@@ -83,21 +78,13 @@
         gap: 8px;
         min-width: 0;
       }
-
-      /* Let sections balance space on wide screens, wrap on narrow */
       .left  { flex: 1 1 320px; justify-content: flex-start; }
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
-      /* Prevent children from shrinking into each other */
-      .left > *, .center > *, .right > * {
-        flex: 0 0 auto;
-        min-width: 0;
-      }
+      .left > *, .center > *, .right > * { flex: 0 0 auto; min-width: 0; }
 
-      button,
-      select,
-      input[type="range"] {
+      button, select, input[type="range"] {
         color: var(--fg);
         background: #1a1a21;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -105,12 +92,7 @@
         padding: 6px 10px;
       }
       button { cursor: pointer; }
-      button:disabled,
-      select:disabled,
-      input:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
+      button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
 
       .hidden { display: none !important; }
       .label { color: var(--muted); white-space: nowrap; }
@@ -120,7 +102,6 @@
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
-      /* Panels container */
       #panels {
         position: fixed;
         right: 0;
@@ -139,7 +120,6 @@
       }
       #panels .panel.hidden { display: none; }
 
-      /* Screensaver dimmer */
       #screensaver {
         position: fixed;
         inset: 0;
@@ -151,77 +131,34 @@
       }
       #screensaver.active { opacity: 1; }
 
-      /* —— Mobile / small windows ——————————————————————————— */
       @media (max-width: 768px) {
         .toolbar {
-          /* Bottom “thumb-reachable” pill, safe-area aware */
           top: auto;
           bottom: max(10px, var(--safe-bottom));
           left: max(10px, var(--safe-left));
           right: max(10px, var(--safe-right));
-
           justify-content: center;
           gap: 8px;
           padding: 10px;
           border-radius: calc(var(--hud-radius) + 2px);
         }
-
-        /* Stack sections in order: center, left, right */
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
 
-        .left, .center, .right {
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        /* Seek spans full row */
-        #seek {
-          width: 100%;
-          max-width: 100%;
-        }
-
-        /* Volume sensible width on mobile */
-        #volume {
-          width: min(55vw, 240px);
-        }
-
-        /* Hide verbose labels/telemetry to save space */
-        .label--long,
-        #gpu-label,
-        #fps-label {
-          display: none !important;
-        }
+        .left, .center, .right { flex-wrap: wrap; gap: 8px; }
+        #seek { width: 100%; max-width: 100%; }
+        #volume { width: min(55vw, 240px); }
+        .label--long, #gpu-label, #fps-label { display: none !important; }
       }
 
-      /* Ultra-compact phones */
       @media (max-width: 380px) {
-        .toolbar {
-          left: max(8px, var(--safe-left));
-          right: max(8px, var(--safe-right));
-          gap: 6px;
-          padding: 8px;
-        }
-
-        /* De-emphasize rarely used actions on very tight screens */
-        #btn-crossfade,
-        #btn-vj,
-        #btn-quality,
-        #btn-accessibility,
-        #btn-record {
-          display: none !important;
-        }
+        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
+        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
 
-      /* Respect reduced motion */
       @media (prefers-reduced-motion: reduce) {
-        * {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-          scroll-behavior: auto !important;
-        }
+        * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
       }
     </style>
   </head>
@@ -296,41 +233,6 @@
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
-
-    <!-- Lyrics font switching logic (persists to localStorage) -->
-    <script>
-      (function () {
-        const FONTS = {
-          'Bebas Neue': "'Bebas Neue', Impact, system-ui, sans-serif",
-          'Bangers': "'Bangers', 'Comic Sans MS', system-ui, cursive",
-          'Black Ops One': "'Black Ops One', Impact, system-ui, sans-serif",
-          'Pacifico': "'Pacifico', 'Brush Script MT', cursive",
-          'Press Start 2P': "'Press Start 2P', 'VT323', monospace",
-        };
-        const KEY = 'lyrics-font-label';
-        const select = document.getElementById('lyrics-font');
-
-        function apply(label) {
-          const stack = FONTS[label] || FONTS['Bebas Neue'];
-          document.documentElement.style.setProperty('--lyrics-font', stack);
-          try { localStorage.setItem(KEY, label); } catch (_) {}
-        }
-
-        try {
-          const saved = localStorage.getItem(KEY);
-          if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
-            select.value = saved;
-            apply(saved);
-          } else {
-            apply(select.value);
-          }
-        } catch (_) {
-          apply(select.value);
-        }
-
-        select.addEventListener('change', (e) => apply(e.target.value));
-      })();
-    </script>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
