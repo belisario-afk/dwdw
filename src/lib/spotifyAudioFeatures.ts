@@ -7,8 +7,8 @@ export type AudioFeatures = {
 };
 
 type AudioFeaturesErrorInfo = {
-  status: number;    // 0 for network/unknown
-  detail?: unknown;  // optional server error payload or thrown error
+  status: number;   // 0 for network/unknown
+  detail?: unknown; // optional server error payload or thrown error
 };
 
 let audioFeaturesErrorHandler:
@@ -16,9 +16,7 @@ let audioFeaturesErrorHandler:
   | undefined;
 
 /**
- * Allows UI modules (e.g., service banner) to receive errors from audio-features fetches.
- * Example:
- *   setAudioFeaturesErrorHandler(({ status }) => { ... });
+ * UI modules (e.g., service banner) can subscribe to audio-features fetch errors.
  */
 export function setAudioFeaturesErrorHandler(
   fn: (info: AudioFeaturesErrorInfo) => void
@@ -47,11 +45,11 @@ export async function getAudioFeatures(
     );
 
     if (!res.ok) {
-      let detail: unknown;
+      let detail: unknown = undefined;
       try {
         detail = await res.json();
       } catch {
-        /* ignore */
+        // ignore parse errors
       }
       console.warn(`Audio features fetch failed ${res.status}:`, detail);
       audioFeaturesErrorHandler?.({ status: res.status, detail });
