@@ -1,3 +1,6 @@
+// Safe wrapper for Spotify audio-features with neutral fallbacks.
+// Use this instead of direct fetches to /v1/audio-features/:id.
+
 export type AudioFeatures = {
   tempo: number;
   energy: number;
@@ -14,19 +17,27 @@ const NEUTRAL: AudioFeatures = {
   loudness: -8,
 };
 
+// Optional error hook, e.g., to show a banner
+type ErrorInfo = { status: number; detail?: string };
+let onError: ((info: ErrorInfo) => void) | null = null;
+export function setAudioFeaturesErrorHandler(fn: ((info: ErrorInfo) => void) | null) {
+  onError = fn;
+}
+
 export async function getAudioFeatures(trackId: string, token: string): Promise<AudioFeatures> {
   if (!trackId || !token) return NEUTRAL;
 
   try {
-    const res = await fetch(`https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(
+      `https://api.spotify.com/v1/audio-features/${encodeURIComponent(trackId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
     if (!res.ok) {
-      // Log the server-provided reason (helps diagnose 403s)
       let detail = '';
       try { detail = JSON.stringify(await res.json()); } catch {}
       console.warn(`Audio features fetch failed ${res.status}: ${detail}`);
+      if (onError) onError({ status: res.status, detail });
       return NEUTRAL;
     }
 
@@ -42,6 +53,7 @@ export async function getAudioFeatures(trackId: string, token: string): Promise<
     };
   } catch (e) {
     console.warn('Audio features fetch error:', e);
+    if (onError) onError({ status: 0, detail: String(e) });
     return NEUTRAL;
   }
 }

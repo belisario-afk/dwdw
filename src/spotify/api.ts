@@ -1,3 +1,4 @@
+import { getAudioFeatures as getAudioFeaturesSafe } from '@/lib/spotifyAudioFeatures';
 import { Auth } from '@auth/pkce';
 
 export class SpotifyAPI {
@@ -44,6 +45,8 @@ export class SpotifyAPI {
   async pause() { return this.request('PUT', '/me/player/pause'); }
   async seek(positionMs: number) { return this.request('PUT', `/me/player/seek?position_ms=${Math.round(positionMs)}`); }
 
-  async getAudioFeatures(trackId: string) { return this.request('GET', `/audio-features/${trackId}`); }
-  async getAudioAnalysis(trackId: string) { return this.request('GET', `/audio-analysis/${trackId}`); }
+ async getAudioFeatures(trackId: string) {
+  const token = this.auth.getAccessToken();
+  if (!token) throw Object.assign(new Error('No access token'), { status: 0 });
+  return getAudioFeaturesSafe(trackId, token);
 }

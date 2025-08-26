@@ -1,3 +1,5 @@
+import '@/styles/service-banner.css'; 
+import { initServiceBannerForAudioFeatures } from '@/utils/serviceBanner'; initServiceBannerForAudioFeatures();
 import './fonts';
 import './styles/lyrics.css';
 import { ensureRoute } from './router';
