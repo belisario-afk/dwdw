@@ -64,7 +64,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Scene smart fallback for mislabeled scene ids
+  // Scene smart fallback (covers mislabeled scene ids)
   const sceneFallbacks: Record<string, string[]> = {
     'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
     'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
@@ -280,14 +280,14 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
         </div>
 
         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          <input id="tiktok-username" type="text" placeholder="TikTok username (uniqueId)" style="flex:1 1 160px; min-width:160px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
+          <input id="tiktok-username" type="text" placeholder="TikTok username (uniqueId or profile URL)" style="flex:1 1 160px; min-width:160px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
           <button id="btn-tt-connect">Connect</button>
           <button id="btn-tt-disconnect">Disconnect</button>
           <span id="tt-status" style="color:#a0a0b2; font-size:12px;">Not connected</span>
         </div>
 
         <div style="color:#9aa; font-size:12px;">
-          Go live on TikTok, then enter your username and Connect. Viewers can add with !play in chat.
+          Go live on TikTok, then enter your username (e.g., lmohss) or paste your profile link and Connect.
         </div>
 
         <div style="display:flex; gap:6px; align-items:center;">
@@ -312,11 +312,15 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     const inputUser = panel.querySelector('#tiktok-username') as HTMLInputElement;
 
     btnConnect.onclick = async () => {
-      const u = inputUser.value.trim();
-      if (!u) return;
+      const raw = inputUser.value.trim();
+      const uniqueId = normalizeTikTokId(raw);
+      if (!uniqueId) {
+        setTTStatus('Enter username like lmohss or paste your profile URL');
+        return;
+      }
       try {
-        await tiktokConnect(u);
-        setTTStatus(`Connected to @${u}`);
+        await tiktokConnect(uniqueId);
+        setTTStatus(`Connected to @${uniqueId}`);
       } catch (e: any) {
         console.debug('TikTok connect failed', e);
         setTTStatus(`Connect failed: ${e?.message || e}`);
@@ -377,8 +381,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     if (!token) throw new Error('No access token');
     const resp = await fetch(`https://api.spotify.com/v1${pathAndQuery}`, {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` }
-    });
+      headers: { Authorization: { toString: () => `Bearer ${token}` } as any } // ensure header stringification
+    } as RequestInit);
     if (resp.status === 204) return null as any;
     if (!resp.ok) throw new Error(`Spotify PUT ${resp.status} ${await resp.text()}`);
     return resp.json().catch(() => null as any);
@@ -464,7 +468,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     const optimistic: QueueItem = { ...item, requestedBy };
 
     queueState.items.push(optimistic);
-    if (queueState.items.length > 50) queueState.items.shift(); // keep it bounded
+    if (queueState.items.length > 50) queueState.items.shift();
     renderQueueList();
 
     try {
@@ -482,7 +486,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   async function handleIncomingChat(user: string, text: string) {
     const parsed = parseChatCommand(text);
-    if (!parsed) return; // ignore unrelated chat
+    if (!parsed) return;
 
     if (!passCooldown(user)) {
       setLastAction(`Cooldown: please wait`);
@@ -517,8 +521,27 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     }
   }
 
-  // TikTok bridge
-  let ttConn: any | null = null;
+  // ——— TikTok bridge helpers ———
+
+  function normalizeTikTokId(input: string): string | null {
+    if (!input) return null;
+    let s = input.trim();
+    // If it's a URL, extract /@username
+    if (/^https?:\/\//i.test(s)) {
+      try {
+        const u = new URL(s);
+        const m = u.pathname.match(/\/@([A-Za-z0-9._-]+)/);
+        if (m) s = m[1];
+      } catch {
+        // ignore parse errors
+      }
+    }
+    // Strip leading @
+    if (s.startsWith('@')) s = s.slice(1);
+    // Validate chars
+    if (!/^[A-Za-z0-9._-]{2,24}$/.test(s)) return null;
+    return s;
+  }
 
   async function ensureTikTokConnector(): Promise<boolean> {
     if (
@@ -526,32 +549,26 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       (window as any).WebcastPushConnection
     ) return true;
 
-    // Try unpkg, then jsDelivr fallback
-    const tryLoad = (src: string) => new Promise<void>((resolve) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.defer = true;
-      s.setAttribute('data-tiktok-connector', '1');
-      s.onload = () => resolve();
-      s.onerror = () => resolve();
-      document.head.appendChild(s);
-    });
+    // If index.html preloaded script, wait a moment for it
+    await new Promise((r) => setTimeout(r, 200));
 
-    const existing = document.querySelector('script[data-tiktok-connector]');
-    if (!existing) {
-      await tryLoad('https://unpkg.com/tiktok-live-connector/dist/browser.js');
-      if (
-        !((window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
-          (window as any).WebcastPushConnection)
-      ) {
-        await tryLoad('https://cdn.jsdelivr.net/npm/tiktok-live-connector/dist/browser.js');
-      }
-    } else {
-      await new Promise<void>((resolve) => {
-        existing.addEventListener('load', () => resolve());
-        (existing as any).onerror = () => resolve();
+    // If still not present, attempt dynamic load (unpkg -> jsDelivr)
+    const sources = [
+      'https://unpkg.com/tiktok-live-connector/dist/browser.js',
+      'https://cdn.jsdelivr.net/npm/tiktok-live-connector/dist/browser.js'
+    ];
+    for (const src of sources) {
+      const ok = await new Promise<boolean>((resolve) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.defer = true;
+        s.crossOrigin = 'anonymous';
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
       });
+      if (ok) break;
     }
 
     return !!(
@@ -560,23 +577,24 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     );
   }
 
+  let ttConn: any | null = null;
+
   async function tiktokConnect(username: string) {
     await tiktokDisconnect();
     const ok = await ensureTikTokConnector();
-    if (!ok) throw new Error('TikTok connector unavailable');
+    if (!ok) throw new Error('TikTok connector unavailable (script blocked). Try disabling ad blockers or hard refresh.');
 
     const Ctor =
       (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
       (window as any).WebcastPushConnection;
 
-    // IMPORTANT: username must be the uniqueId (not display name). Must be live.
+    // Must be LIVE and use uniqueId
     ttConn = new Ctor(username, { enableExtendedGiftInfo: false });
 
     ttConn.on('chat', (data: any) => {
       const user = data?.uniqueId || data?.nickname || 'user';
       const comment: string = data?.comment || '';
       if (!comment) return;
-      // All chat in live — parse commands only
       handleIncomingChat(user, comment);
     });
 

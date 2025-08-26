@@ -10,6 +10,16 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
+    <!-- Preload TikTok connector (fallback to jsDelivr if unpkg fails) -->
+    <script
+      data-tiktok-preload
+      src="https://unpkg.com/tiktok-live-connector/dist/browser.js"
+      async
+      defer
+      crossorigin="anonymous"
+      onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tiktok-live-connector/dist/browser.js';s.async=true;s.defer=true;s.crossOrigin='anonymous';document.head.appendChild(s);}())"
+    ></script>
+
     <style>
       :root {
         --bg: #0b0b0f;
