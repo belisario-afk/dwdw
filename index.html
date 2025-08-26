@@ -2,18 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <title>dwdw</title>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Bump this when you deploy so you can verify the new HTML is live -->
-    <meta name="build-version" content="2025-08-26-04" />
+    <!-- Bump when deploying to ensure you are seeing the latest HTML -->
+    <meta name="build-version" content="2025-08-26-05" />
 
     <!-- Backup source for the proxy URL -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- EARLY: Set proxy URL so window.TIKTOK_PROXY_URL is never undefined -->
+    <!-- PREBOOT: define TikTok proxy ASAP and persist it so window.TIKTOK_PROXY_URL is never undefined -->
     <script>
       (function () {
         try {
@@ -24,12 +27,13 @@
       })();
     </script>
 
-    <!-- EARLY: Silence Spotify audio-features 403/429 logs by intercepting before the network -->
+    <!-- PREBOOT: silence Spotify audio-features 403/429 noise before any other scripts run -->
     <script>
       (function () {
         try {
           var isAudioFeatures = function (url) {
-            return typeof url === 'string' && url.indexOf('https://api.spotify.com/v1/audio-features') === 0;
+            return typeof url === 'string' &&
+              (url.indexOf('https://api.spotify.com/v1/audio-features') === 0);
           };
 
           // Patch fetch
@@ -41,6 +45,7 @@
                   ? input
                   : (input && (input.url || input.toString())) || '';
                 if (isAudioFeatures(url)) {
+                  // Return empty JSON to avoid 403 errors and logs
                   return Promise.resolve(new Response('{}', {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
@@ -51,7 +56,7 @@
             };
           }
 
-          // Patch XMLHttpRequest as a safety net
+          // Patch XHR as a safety net
           var OrigXHR = window.XMLHttpRequest;
           if (OrigXHR) {
             function XHRProxy() {
@@ -80,6 +85,7 @@
 
               this.send = function (body) {
                 if (!silenced) return xhr.send(body);
+                // Synthesize a successful empty JSON response
                 setTimeout(function () {
                   self.status = 200;
                   self.responseText = '{}';
@@ -103,6 +109,7 @@
                 if (!silenced) return xhr.abort();
               };
 
+              // Mirror for non-silenced requests
               xhr.onreadystatechange = function () {
                 if (!silenced) {
                   try {
@@ -141,6 +148,22 @@
             XHRProxy.UNSENT = OrigXHR.UNSENT;
             window.XMLHttpRequest = XHRProxy;
           }
+
+          // Filter app-origin console noise (browser-origin EME warning may still appear; harmless)
+          try {
+            var owarn = console.warn.bind(console);
+            var oerror = console.error.bind(console);
+            console.warn = function () {
+              var s = String(arguments[0] ?? '');
+              if (s.includes('robustness level be specified')) return;
+              return owarn.apply(console, arguments);
+            };
+            console.error = function () {
+              var s = String(arguments[0] ?? '');
+              if (s.includes('Audio features fetch failed') || s.includes('/v1/audio-features')) return;
+              return oerror.apply(console, arguments);
+            };
+          } catch {}
         } catch {}
       })();
     </script>
@@ -166,26 +189,66 @@
         --safe-left: env(safe-area-inset-left, 0px);
       }
 
-      html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: var(--hud-font); overflow: hidden; -webkit-text-size-adjust: 100%; }
-
-      #canvas-host { position: fixed; inset: 0; overflow: hidden; }
-
-      .toolbar {
-        position: fixed; top: max(12px, var(--safe-top)); left: max(12px, var(--safe-left)); right: max(12px, var(--safe-right)); margin: 0 auto;
-        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 10px 12px;
-        background: var(--hud-surface); backdrop-filter: blur(12px) saturate(120%);
-        border: var(--hud-border); border-radius: var(--hud-radius); box-shadow: var(--hud-shadow);
-        z-index: 9999; pointer-events: auto; -webkit-tap-highlight-color: transparent;
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: var(--hud-font);
+        overflow: hidden;
+        -webkit-text-size-adjust: 100%;
       }
 
-      .left, .center, .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      #canvas-host {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .toolbar {
+        position: fixed;
+        top: max(12px, var(--safe-top));
+        left: max(12px, var(--safe-left));
+        right: max(12px, var(--safe-right));
+        margin: 0 auto;
+
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+
+        background: var(--hud-surface);
+        backdrop-filter: blur(12px) saturate(120%);
+        border: var(--hud-border);
+        border-radius: var(--hud-radius);
+        box-shadow: var(--hud-shadow);
+        z-index: 9999;
+        pointer-events: auto;
+
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .left, .center, .right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
       .left  { flex: 1 1 320px; justify-content: flex-start; }
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
+
       .left > *, .center > *, .right > * { flex: 0 0 auto; min-width: 0; }
 
-      button, select, input[type="range"] { color: var(--fg); background: #1a1a21; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 10px; }
+      button, select, input[type="range"] {
+        color: var(--fg);
+        background: #1a1a21;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 6px 10px;
+      }
       button { cursor: pointer; }
       button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -200,11 +263,19 @@
       #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
       #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
 
-      #screensaver { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(0,0,0,0.35), rgba(0,0,0,0.8)); opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150; }
+      #screensaver {
+        position: fixed; inset: 0;
+        background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
+        opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150;
+      }
       #screensaver.active { opacity: 1; }
 
       @media (max-width: 768px) {
-        .toolbar { top: auto; bottom: max(10px, var(--safe-bottom)); left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right)); justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px); }
+        .toolbar {
+          top: auto; bottom: max(10px, var(--safe-bottom));
+          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
+          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
+        }
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
@@ -292,7 +363,7 @@
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
-    <!-- Cache-bust to force browsers to fetch the latest bundle -->
-    <script type="module" src="/src/main.ts?v=2025-08-26-04"></script>
+    <!-- Cache-bust so browsers fetch the latest bundle -->
+    <script type="module" src="/src/main.ts?v=2025-08-26-05"></script>
   </body>
 </html>
