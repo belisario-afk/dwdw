@@ -3,9 +3,8 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'node:path';
 
 export default defineConfig({
-  // Project Pages path
-  base: '/dwdw/',
-  // Resolve TS path aliases from tsconfig.json (e.g., @auth/*, @spotify/*, etc.)
+  // Relative base works under both / and /dwdw/
+  base: './',
   plugins: [tsconfigPaths()],
   resolve: {
     alias: {
@@ -13,7 +12,7 @@ export default defineConfig({
     },
   },
   build: {
-    // Use stable filenames so old cached HTML won't 404 on new deploys
+    // Stable filenames prevent stale index.html from 404-ing new deploys
     rollupOptions: {
       output: {
         entryFileNames: 'assets/index.js',

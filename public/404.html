@@ -2,13 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="refresh" content="0; url=/dwdw/" />
     <title>Redirecting…</title>
     <script>
-      // SPA fallback for GitHub Pages
-      const hash = location.hash || '';
-      location.replace('/dwdw/' + hash);
+      // Dynamic base for both / and /<repo>/
+      (function () {
+        var path = location.pathname;
+        // If this 404 is within a project page like /dwdw/...,
+        // send back to /dwdw/. Otherwise, to root "/".
+        var segs = path.split('/').filter(Boolean);
+        var base = segs.length ? '/' + segs[0] + '/' : '/';
+        var hash = location.hash || '';
+        location.replace(base + hash);
+      })();
     </script>
+    <meta http-equiv="refresh" content="2" />
   </head>
   <body>Redirecting…</body>
 </html>

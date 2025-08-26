@@ -5,11 +5,14 @@
     <title>Spotify Callback</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script>
-      // Forward OAuth params into the SPA's hash route at /dwdw/
+      // Forward OAuth params into the SPA's hash route, computing the base dynamically.
       (function () {
-        var base = '/dwdw/#/callback';
-        var qs = window.location.search || '';
-        window.location.replace(base + qs);
+        // Strip trailing /callback from the current path to get the app base.
+        var basePath = window.location.pathname.replace(/\/callback\/?$/, '');
+        // Ensure leading slash except when empty.
+        if (basePath !== '' && basePath[0] !== '/') basePath = '/' + basePath;
+        var target = (basePath || '/') + '#/callback' + (window.location.search || '');
+        window.location.replace(target);
       })();
     </script>
   </head>
