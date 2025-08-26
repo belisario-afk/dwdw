@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const r = (p: string) => path.resolve(process.cwd(), p);
 
-export default defineConfig({
+export default defineConfig({base: '/', plugins: [react()] })
   base: '/dwdw/',
   resolve: {
     alias: [
