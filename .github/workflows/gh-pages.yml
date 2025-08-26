@@ -26,25 +26,34 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          # If the lockfile doesn't exist yet, cache is skipped automatically.
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          standalone: true
-          # IMPORTANT: don't auto-install here; we control install below
-          run_install: false
-
-      - name: Install dependencies
-        # Works with or without an existing lockfile
+      - name: Enable Corepack and activate pnpm
         shell: bash
         run: |
-          if [ -f pnpm-lock.yaml ]; then
-            pnpm -w install --frozen-lockfile
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+          pnpm --version
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -e
+          if [ -f pnpm-workspace.yaml ]; then
+            W="-w"
           else
-            pnpm -w install --no-frozen-lockfile
+            W=""
+          fi
+
+          if [ -f pnpm-lock.yaml ]; then
+            echo "Lockfile found. Installing with frozen lockfile..."
+            pnpm $W install --frozen-lockfile
+          else
+            echo "No lockfile found. Installing without frozen lockfile..."
+            pnpm $W install --no-frozen-lockfile
           fi
 
       - name: Build
