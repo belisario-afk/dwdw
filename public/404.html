@@ -4,12 +4,9 @@
     <meta charset="utf-8" />
     <title>Redirecting…</title>
     <script>
-      // Dynamic base for both / and /<repo>/
+      // Dynamic SPA fallback: compute base from current path.
       (function () {
-        var path = location.pathname;
-        // If this 404 is within a project page like /dwdw/...,
-        // send back to /dwdw/. Otherwise, to root "/".
-        var segs = path.split('/').filter(Boolean);
+        var segs = location.pathname.split('/').filter(Boolean);
         var base = segs.length ? '/' + segs[0] + '/' : '/';
         var hash = location.hash || '';
         location.replace(base + hash);

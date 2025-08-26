@@ -3,7 +3,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'node:path';
 
 export default defineConfig({
-  // Relative base works under both / and /dwdw/
+  // Relative base works at custom domain root and at /dwdw/
   base: './',
   plugins: [tsconfigPaths()],
   resolve: {
@@ -12,7 +12,7 @@ export default defineConfig({
     },
   },
   build: {
-    // Stable filenames prevent stale index.html from 404-ing new deploys
+    // Stable filenames so old cached HTML won't point to missing hashed bundles
     rollupOptions: {
       output: {
         entryFileNames: 'assets/index.js',

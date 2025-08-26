@@ -6,6 +6,17 @@ export type AudioFeatures = {
   loudness: number;
 };
 
+type AudioFeaturesErrorInfo = {
+  status: number;      // 0 = network/unknown
+  detail?: unknown;    // parsed server error if available
+};
+
+let audioFeaturesErrorHandler: ((info: AudioFeaturesErrorInfo) => void) | undefined;
+
+export function setAudioFeaturesErrorHandler(fn: (info: AudioFeaturesErrorInfo) => void) {
+  audioFeaturesErrorHandler = fn;
+}
+
 const NEUTRAL: AudioFeatures = {
   tempo: 120,
   energy: 0.5,
@@ -23,10 +34,10 @@ export async function getAudioFeatures(trackId: string, token: string): Promise<
     });
 
     if (!res.ok) {
-      // Log the server-provided reason (helps diagnose 403s)
-      let detail = '';
-      try { detail = JSON.stringify(await res.json()); } catch {}
-      console.warn(`Audio features fetch failed ${res.status}: ${detail}`);
+      let detail: unknown = undefined;
+      try { detail = await res.json(); } catch {}
+      console.warn(`Audio features fetch failed ${res.status}:`, detail);
+      audioFeaturesErrorHandler?.({ status: res.status, detail });
       return NEUTRAL;
     }
 
@@ -42,6 +53,7 @@ export async function getAudioFeatures(trackId: string, token: string): Promise<
     };
   } catch (e) {
     console.warn('Audio features fetch error:', e);
+    audioFeaturesErrorHandler?.({ status: 0, detail: e });
     return NEUTRAL;
   }
 }
