@@ -7,19 +7,148 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Visible version tag to confirm the new build is live -->
-    <meta name="build-version" content="2025-08-26-01" />
+    <!-- Bump this when you deploy to verify you're seeing the new HTML -->
+    <meta name="build-version" content="2025-08-26-02" />
 
-    <!-- Provide the proxy URL via meta (backup source) -->
+    <!-- Backup source for the proxy URL -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- Failsafe: set window + localStorage ASAP so console logging shows a value -->
+    <!-- EARLY: Define the proxy URL and persist it so it's available immediately and after reloads -->
     <script>
       (function () {
         try {
           var u = 'https://dwdw-7a4i.onrender.com'.replace(/\/+$/, '');
           window.TIKTOK_PROXY_URL = u;
           try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
+        } catch {}
+      })();
+    </script>
+
+    <!-- EARLY: Silence Spotify audio-features 403s by intercepting before the network -->
+    <script>
+      (function () {
+        try {
+          var shouldSilence = function (url) {
+            return typeof url === 'string' && url.indexOf('https://api.spotify.com/v1/audio-features') === 0;
+          };
+
+          // Patch fetch
+          var origFetch = window.fetch && window.fetch.bind(window);
+          if (origFetch) {
+            window.fetch = function (input, init) {
+              try {
+                var url = (typeof input === 'string')
+                  ? input
+                  : (input && (input.url || input.toString())) || '';
+                if (shouldSilence(url)) {
+                  return Promise.resolve(new Response('{}', {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                  }));
+                }
+              } catch {}
+              return origFetch(input, init);
+            };
+          }
+
+          // Optional: Patch XMLHttpRequest as a safety net (many apps only use fetch)
+          var OrigXHR = window.XMLHttpRequest;
+          if (OrigXHR) {
+            function XHRProxy() {
+              var xhr = new OrigXHR();
+              var _url = '';
+              var _silenced = false;
+              var self = this;
+
+              // Mirror properties
+              this.readyState = 0;
+              this.status = 0;
+              this.responseText = '';
+              this.response = '';
+              this.onreadystatechange = null;
+              this.onload = null;
+              this.onerror = null;
+
+              this.open = function (method, url, async, user, password) {
+                _url = String(url || '');
+                _silenced = shouldSilence(_url);
+                if (_silenced) {
+                  // Simulate opened
+                  self.readyState = 1;
+                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
+                } else {
+                  return xhr.open(method, url, async !== false, user, password);
+                }
+              };
+
+              this.send = function (body) {
+                if (!_silenced) return xhr.send(body);
+                // Synthesize a successful, empty JSON response
+                setTimeout(function () {
+                  self.status = 200;
+                  self.responseText = '{}';
+                  self.response = '{}';
+                  self.readyState = 4;
+                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
+                  if (typeof self.onload === 'function') { try { self.onload(); } catch {} }
+                }, 0);
+              };
+
+              // Pass-through for headers and others (no-ops for silenced requests)
+              this.setRequestHeader = function () {
+                if (!_silenced) return xhr.setRequestHeader.apply(xhr, arguments);
+              };
+              this.getAllResponseHeaders = function () {
+                return _silenced ? '' : xhr.getAllResponseHeaders();
+              };
+              this.getResponseHeader = function (name) {
+                return _silenced ? null : xhr.getResponseHeader(name);
+              };
+              this.abort = function () {
+                if (!_silenced) return xhr.abort();
+              };
+
+              // Event forwarding for non-silenced XHRs
+              xhr.onreadystatechange = function () {
+                // Mirror dynamic props for non-silenced flows
+                if (!_silenced) {
+                  try {
+                    self.readyState = xhr.readyState;
+                    self.status = xhr.status;
+                    self.responseText = xhr.responseText;
+                    self.response = xhr.response;
+                  } catch {}
+                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
+                }
+              };
+              xhr.onload = function () {
+                if (!_silenced && typeof self.onload === 'function') { try { self.onload(); } catch {} }
+              };
+              xhr.onerror = function () {
+                if (!_silenced && typeof self.onerror === 'function') { try { self.onerror(); } catch {} }
+              };
+
+              // Property proxies
+              Object.defineProperty(self, 'responseType', {
+                get: function () { return _silenced ? '' : xhr.responseType; },
+                set: function (v) { if (!_silenced) xhr.responseType = v; }
+              });
+              Object.defineProperty(self, 'withCredentials', {
+                get: function () { return _silenced ? false : xhr.withCredentials; },
+                set: function (v) { if (!_silenced) xhr.withCredentials = v; }
+              });
+              Object.defineProperty(self, 'timeout', {
+                get: function () { return _silenced ? 0 : xhr.timeout; },
+                set: function (v) { if (!_silenced) xhr.timeout = v; }
+              });
+            }
+            XHRProxy.DONE = OrigXHR.DONE;
+            XHRProxy.HEADERS_RECEIVED = OrigXHR.HEADERS_RECEIVED;
+            XHRProxy.LOADING = OrigXHR.LOADING;
+            XHRProxy.OPENED = OrigXHR.OPENED;
+            XHRProxy.UNSENT = OrigXHR.UNSENT;
+            window.XMLHttpRequest = XHRProxy;
+          }
         } catch {}
       })();
     </script>
@@ -170,7 +299,7 @@
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
-    <!-- Cache-bust the app entry so browsers fetch the latest build -->
-    <script type="module" src="/src/main.ts?v=2025-08-26-01"></script>
+    <!-- Cache-bust to ensure browsers fetch the latest bundle -->
+    <script type="module" src="/src/main.ts?v=2025-08-26-02"></script>
   </body>
 </html>
