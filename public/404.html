@@ -6,7 +6,6 @@
     <title>Redirecting…</title>
     <script>
       // SPA fallback for GitHub Pages
-      // If someone lands on /dwdw/some/path, send them to the app root and keep the hash if present.
       const hash = location.hash || '';
       location.replace('/dwdw/' + hash);
     </script>
