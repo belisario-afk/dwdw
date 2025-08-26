@@ -10,163 +10,14 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- Bump when deploying to ensure you are seeing the latest HTML -->
-    <meta name="build-version" content="2025-08-26-05" />
+    <!-- Bump this when you deploy so you can verify the latest HTML is live -->
+    <meta name="build-version" content="2025-08-26-09" />
 
-    <!-- Backup source for the proxy URL -->
+    <!-- Backup source for the proxy URL used by your TikTok feature -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- PREBOOT: define TikTok proxy ASAP and persist it so window.TIKTOK_PROXY_URL is never undefined -->
-    <script>
-      (function () {
-        try {
-          var u = 'https://dwdw-7a4i.onrender.com'.replace(/\/+$/, '');
-          window.TIKTOK_PROXY_URL = u;
-          try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
-        } catch {}
-      })();
-    </script>
-
-    <!-- PREBOOT: silence Spotify audio-features 403/429 noise before any other scripts run -->
-    <script>
-      (function () {
-        try {
-          var isAudioFeatures = function (url) {
-            return typeof url === 'string' &&
-              (url.indexOf('https://api.spotify.com/v1/audio-features') === 0);
-          };
-
-          // Patch fetch
-          var origFetch = window.fetch && window.fetch.bind(window);
-          if (origFetch) {
-            window.fetch = function (input, init) {
-              try {
-                var url = (typeof input === 'string')
-                  ? input
-                  : (input && (input.url || input.toString())) || '';
-                if (isAudioFeatures(url)) {
-                  // Return empty JSON to avoid 403 errors and logs
-                  return Promise.resolve(new Response('{}', {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' }
-                  }));
-                }
-              } catch {}
-              return origFetch(input, init);
-            };
-          }
-
-          // Patch XHR as a safety net
-          var OrigXHR = window.XMLHttpRequest;
-          if (OrigXHR) {
-            function XHRProxy() {
-              var xhr = new OrigXHR();
-              var silenced = false;
-              var self = this;
-
-              this.onreadystatechange = null;
-              this.onload = null;
-              this.onerror = null;
-              this.readyState = 0;
-              this.status = 0;
-              this.responseText = '';
-              this.response = '';
-
-              this.open = function (method, url, async, user, password) {
-                var u = String(url || '');
-                silenced = isAudioFeatures(u);
-                if (silenced) {
-                  self.readyState = 1;
-                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
-                } else {
-                  return xhr.open(method, url, async !== false, user, password);
-                }
-              };
-
-              this.send = function (body) {
-                if (!silenced) return xhr.send(body);
-                // Synthesize a successful empty JSON response
-                setTimeout(function () {
-                  self.status = 200;
-                  self.responseText = '{}';
-                  self.response = '{}';
-                  self.readyState = 4;
-                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
-                  if (typeof self.onload === 'function') { try { self.onload(); } catch {} }
-                }, 0);
-              };
-
-              this.setRequestHeader = function () {
-                if (!silenced) return xhr.setRequestHeader.apply(xhr, arguments);
-              };
-              this.getAllResponseHeaders = function () {
-                return silenced ? '' : xhr.getAllResponseHeaders();
-              };
-              this.getResponseHeader = function (name) {
-                return silenced ? null : xhr.getResponseHeader(name);
-              };
-              this.abort = function () {
-                if (!silenced) return xhr.abort();
-              };
-
-              // Mirror for non-silenced requests
-              xhr.onreadystatechange = function () {
-                if (!silenced) {
-                  try {
-                    self.readyState = xhr.readyState;
-                    self.status = xhr.status;
-                    self.responseText = xhr.responseText;
-                    self.response = xhr.response;
-                  } catch {}
-                  if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
-                }
-              };
-              xhr.onload = function () {
-                if (!silenced && typeof self.onload === 'function') { try { self.onload(); } catch {} }
-              };
-              xhr.onerror = function () {
-                if (!silenced && typeof self.onerror === 'function') { try { self.onerror(); } catch {} }
-              };
-
-              Object.defineProperty(self, 'responseType', {
-                get: function () { return silenced ? '' : xhr.responseType; },
-                set: function (v) { if (!silenced) xhr.responseType = v; }
-              });
-              Object.defineProperty(self, 'withCredentials', {
-                get: function () { return silenced ? false : xhr.withCredentials; },
-                set: function (v) { if (!silenced) xhr.withCredentials = v; }
-              });
-              Object.defineProperty(self, 'timeout', {
-                get: function () { return silenced ? 0 : xhr.timeout; },
-                set: function (v) { if (!silenced) xhr.timeout = v; }
-              });
-            }
-            XHRProxy.DONE = OrigXHR.DONE;
-            XHRProxy.HEADERS_RECEIVED = OrigXHR.HEADERS_RECEIVED;
-            XHRProxy.LOADING = OrigXHR.LOADING;
-            XHRProxy.OPENED = OrigXHR.OPENED;
-            XHRProxy.UNSENT = OrigXHR.UNSENT;
-            window.XMLHttpRequest = XHRProxy;
-          }
-
-          // Filter app-origin console noise (browser-origin EME warning may still appear; harmless)
-          try {
-            var owarn = console.warn.bind(console);
-            var oerror = console.error.bind(console);
-            console.warn = function () {
-              var s = String(arguments[0] ?? '');
-              if (s.includes('robustness level be specified')) return;
-              return owarn.apply(console, arguments);
-            };
-            console.error = function () {
-              var s = String(arguments[0] ?? '');
-              if (s.includes('Audio features fetch failed') || s.includes('/v1/audio-features')) return;
-              return oerror.apply(console, arguments);
-            };
-          } catch {}
-        } catch {}
-      })();
-    </script>
+    <!-- MUST load before any other scripts. Relative path so it works under /dwdw/. -->
+    <script src="preboot.js?v=2025-08-26-09"></script>
 
     <style>
       :root {
@@ -199,12 +50,14 @@
         -webkit-text-size-adjust: 100%;
       }
 
+      /* Canvas host fills the viewport behind the HUD */
       #canvas-host {
         position: fixed;
         inset: 0;
         overflow: hidden;
       }
 
+      /* Toolbar HUD */
       .toolbar {
         position: fixed;
         top: max(12px, var(--safe-top));
@@ -240,7 +93,10 @@
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
-      .left > *, .center > *, .right > * { flex: 0 0 auto; min-width: 0; }
+      .left > *, .center > *, .right > * {
+        flex: 0 0 auto;
+        min-width: 0;
+      }
 
       button, select, input[type="range"] {
         color: var(--fg);
@@ -250,7 +106,10 @@
         padding: 6px 10px;
       }
       button { cursor: pointer; }
-      button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+      button:disabled, select:disabled, input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
 
       .hidden { display: none !important; }
       .label { color: var(--muted); white-space: nowrap; }
@@ -260,21 +119,51 @@
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
-      #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
-      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
+      /* Side panels container */
+      #panels {
+        position: fixed;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 200;
+      }
+      #panels .panel {
+        pointer-events: auto;
+        background: #121219;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 10px;
+        color: var(--fg);
+      }
 
+      /* Screensaver overlay */
       #screensaver {
-        position: fixed; inset: 0;
+        position: fixed;
+        inset: 0;
         background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
-        opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 300ms ease;
+        z-index: 150;
       }
       #screensaver.active { opacity: 1; }
 
+      /* Responsive adjustments */
+      @media (max-width: 1024px) {
+        #seek { width: min(45vw, 520px); }
+      }
+
       @media (max-width: 768px) {
         .toolbar {
-          top: auto; bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
-          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
+          top: auto;
+          bottom: max(10px, var(--safe-bottom));
+          left: max(10px, var(--safe-left));
+          right: max(10px, var(--safe-right));
+          justify-content: center;
+          gap: 8px;
+          padding: 10px;
+          border-radius: calc(var(--hud-radius) + 2px);
         }
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
@@ -285,9 +174,22 @@
         .label--long, #gpu-label, #fps-label { display: none !important; }
       }
 
+      @media (max-width: 480px) {
+        button, select, input[type="range"] {
+          padding: 5px 8px;
+        }
+      }
+
       @media (max-width: 380px) {
-        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
-        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
+        .toolbar {
+          left: max(8px, var(--safe-left));
+          right: max(8px, var(--safe-right));
+          gap: 6px;
+          padding: 8px;
+        }
+        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record {
+          display: none !important;
+        }
       }
     </style>
   </head>
@@ -299,7 +201,9 @@
         <button id="btn-login" title="Login with Spotify">Login</button>
         <button id="btn-logout" class="hidden" title="Logout">Logout</button>
         <span id="user-label" class="label" aria-live="polite"></span>
+
         <span class="spacer"></span>
+
         <label class="label label--long" for="device-picker">Device</label>
         <select id="device-picker" title="Playback device"></select>
       </div>
@@ -310,11 +214,27 @@
         <button id="btn-pause" class="hidden" title="Pause">⏸</button>
         <button id="btn-next" title="Next">⏭</button>
 
-        <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" />
+        <input
+          id="seek"
+          type="range"
+          min="0"
+          max="1000"
+          step="1"
+          value="0"
+          aria-label="Seek"
+        />
         <span id="time-label" class="label">0:00 / 0:00</span>
 
         <label class="label" for="volume">Vol</label>
-        <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" />
+        <input
+          id="volume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value="80"
+          aria-label="Volume"
+        />
       </div>
 
       <div class="right">
@@ -359,11 +279,12 @@
     <div id="screensaver" aria-hidden="true"></div>
 
     <script>
+      // Prevent SDK race if it loads before your app initializes the handler
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
-    <!-- Cache-bust so browsers fetch the latest bundle -->
-    <script type="module" src="/src/main.ts?v=2025-08-26-05"></script>
+    <!-- Your app entry (in dev, Vite serves /src; in prod, your build replaces this) -->
+    <script type="module" src="/src/main.ts?v=2025-08-26-09"></script>
   </body>
 </html>

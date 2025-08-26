@@ -1,46 +1,33 @@
-/* Preboot: runs before any other scripts.
-   - Sets window.TIKTOK_PROXY_URL and persists to localStorage.
-   - Silences Spotify audio-features 403/429 noise by intercepting fetch/XMLHttpRequest.
-   - Filters the known EME robustness warning from app console calls (browser-origin warnings may still show in DevTools and are harmless).
+/* Preboot: runs before any other scripts
+   - Ensures window.TIKTOK_PROXY_URL is set immediately (and persisted).
+   - Silences Spotify audio-features 403 noise by intercepting before the network.
+   - Optionally filters a known, harmless EME warning from app-origin console.warn.
 */
 (function () {
+  // 1) Set TikTok proxy early and persist it
   try {
-    var u = 'https://dwdw-7a4i.onrender.com'.replace(/\/+$/, '');
-    window.TIKTOK_PROXY_URL = u;
-    try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
+    var meta = document.querySelector('meta[name="tiktok-proxy"]');
+    var url = (meta && meta.getAttribute('content')) || 'https://dwdw-7a4i.onrender.com';
+    url = url.replace(/\/+$/, ''); // strip trailing slashes
+    window.TIKTOK_PROXY_URL = url;
+    try { localStorage.setItem('TIKTOK_PROXY_URL', url); } catch {}
   } catch {}
 
-  // Filter some noisy console messages from app code
-  try {
-    var owarn = console.warn.bind(console);
-    var oerror = console.error.bind(console);
-    console.warn = function () {
-      var s = String(arguments[0] ?? '');
-      if (s.includes('robustness level be specified')) return;
-      return owarn.apply(console, arguments);
-    };
-    console.error = function () {
-      var s = String(arguments[0] ?? '');
-      if (s.includes('Audio features fetch failed') || s.includes('/v1/audio-features')) return;
-      return oerror.apply(console, arguments);
-    };
-  } catch {}
-
-  // Decide if a request should be silenced
-  function isAudioFeatures(url) {
-    return typeof url === 'string' && url.indexOf('https://api.spotify.com/v1/audio-features') === 0;
+  // 2) Silence only Spotify audio-features fetches (return empty JSON so no network error logs)
+  function isAudioFeatures(u) {
+    return typeof u === 'string' && u.indexOf('https://api.spotify.com/v1/audio-features') === 0;
   }
 
-  // Patch fetch to return an empty object for audio-features to avoid 403 logs
+  // Patch fetch
   try {
     var origFetch = window.fetch && window.fetch.bind(window);
     if (origFetch) {
       window.fetch = function (input, init) {
         try {
-          var url = (typeof input === 'string')
+          var u = (typeof input === 'string')
             ? input
-            : (input && (input.url || input.toString())) || '';
-          if (isAudioFeatures(url)) {
+            : (input && ((input.url) || input.toString())) || '';
+          if (isAudioFeatures(u)) {
             return Promise.resolve(new Response('{}', {
               status: 200,
               headers: { 'Content-Type': 'application/json' }
@@ -52,7 +39,7 @@
     }
   } catch {}
 
-  // Patch XMLHttpRequest as a safety net (if any code still uses XHR)
+  // Patch XMLHttpRequest as a safety net (in case some code uses XHR)
   try {
     var OrigXHR = window.XMLHttpRequest;
     if (OrigXHR) {
@@ -61,6 +48,7 @@
         var silenced = false;
         var self = this;
 
+        // Public props/events
         this.onreadystatechange = null;
         this.onload = null;
         this.onerror = null;
@@ -69,15 +57,15 @@
         this.responseText = '';
         this.response = '';
 
-        this.open = function (method, url, async, user, password) {
-          var u = String(url || '');
-          silenced = isAudioFeatures(u);
+        this.open = function (method, u, async, user, password) {
+          var s = String(u || '');
+          silenced = isAudioFeatures(s);
           if (silenced) {
             self.readyState = 1;
             if (typeof self.onreadystatechange === 'function') { try { self.onreadystatechange(); } catch {} }
-          } else {
-            return xhr.open(method, url, async !== false, user, password);
+            return;
           }
+          return xhr.open(method, u, async !== false, user, password);
         };
 
         this.send = function (body) {
@@ -105,6 +93,7 @@
           if (!silenced) return xhr.abort();
         };
 
+        // Mirror updates for non-silenced requests
         xhr.onreadystatechange = function () {
           if (!silenced) {
             try {
@@ -123,6 +112,7 @@
           if (!silenced && typeof self.onerror === 'function') { try { self.onerror(); } catch {} }
         };
 
+        // Property proxies
         Object.defineProperty(self, 'responseType', {
           get: function () { return silenced ? '' : xhr.responseType; },
           set: function (v) { if (!silenced) xhr.responseType = v; }
@@ -142,6 +132,18 @@
       XHRProxy.OPENED = OrigXHR.OPENED;
       XHRProxy.UNSENT = OrigXHR.UNSENT;
       window.XMLHttpRequest = XHRProxy;
+    }
+  } catch {}
+
+  // 3) Filter a known harmless EME console warning from app-origin logs
+  try {
+    var _warn = console.warn && console.warn.bind(console);
+    if (_warn) {
+      console.warn = function () {
+        var s = String(arguments[0] ?? '');
+        if (s.includes('robustness level be specified')) return;
+        return _warn.apply(console, arguments);
+      };
     }
   } catch {}
 })();
