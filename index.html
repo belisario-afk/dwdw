@@ -157,6 +157,16 @@
           <option value="Emo Slashes">Emo Slashes</option>
         </select>
 
+        <!-- New: Lyrics font picker -->
+        <label class="label" for="lyrics-font">Font</label>
+        <select id="lyrics-font" title="Lyrics font">
+          <option>Bebas Neue</option>
+          <option>Bangers</option>
+          <option>Black Ops One</option>
+          <option>Pacifico</option>
+          <option>Press Start 2P</option>
+        </select>
+
         <button id="btn-crossfade" title="Crossfade visuals">Crossfade</button>
         <button id="btn-vj" title="Open VJ panel">VJ</button>
         <button id="btn-quality" title="Quality settings">Quality</button>
@@ -172,10 +182,51 @@
     <div id="panels" aria-live="polite" aria-relevant="additions removals"></div>
     <div id="screensaver" aria-hidden="true"></div>
 
+    <!-- Ensure the SDK callback exists even if SDK loads before app -->
     <script>
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
+
+    <!-- New: Lyrics font switching logic (persists to localStorage) -->
+    <script>
+      (function () {
+        const FONTS = {
+          'Bebas Neue': "'Bebas Neue', Impact, system-ui, sans-serif",
+          'Bangers': "'Bangers', 'Comic Sans MS', system-ui, cursive",
+          'Black Ops One': "'Black Ops One', Impact, system-ui, sans-serif",
+          'Pacifico': "'Pacifico', 'Brush Script MT', cursive",
+          'Press Start 2P': "'Press Start 2P', 'VT323', monospace",
+        };
+        const KEY = 'lyrics-font-label';
+        const select = document.getElementById('lyrics-font');
+
+        function apply(label) {
+          const stack = FONTS[label] || FONTS['Bebas Neue'];
+          document.documentElement.style.setProperty('--lyrics-font', stack);
+          try { localStorage.setItem(KEY, label); } catch (_) {}
+        }
+
+        // Initialize from saved value
+        try {
+          const saved = localStorage.getItem(KEY);
+          if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
+            select.value = saved;
+            apply(saved);
+          } else {
+            // Ensure default is applied once on first load
+            apply(select.value);
+          }
+        } catch (_) {
+          // localStorage may be unavailable; still apply current selection
+          apply(select.value);
+        }
+
+        // Update on change
+        select.addEventListener('change', (e) => apply(e.target.value));
+      })();
+    </script>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
