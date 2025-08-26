@@ -88,7 +88,7 @@ app.get('/sse/:username', async (req, res) => {
       return;
     }
 
-    // Keepalive pings to prevent idle timeouts on proxies
+    // Keepalive pings
     entry.pingTimer = setInterval(() => {
       try { broadcast(username, 'ping', { t: Date.now() }); } catch {}
     }, 15000);
@@ -110,6 +110,5 @@ app.get('/', (_req, res) => {
 });
 
 const server = app.listen(PORT, () => console.log(`TikTok proxy listening on :${PORT}`));
-// Tweak timeouts for SSE stability
 server.keepAliveTimeout = 75_000;
 server.headersTimeout = 80_000;

@@ -16,21 +16,45 @@ import { initResponsiveHUD } from '@ui/responsive';
 
 initResponsiveHUD();
 
-// Quiet known noisy warnings/errors that are not actionable
+// Quiet known noisy messages from our own code (cannot suppress Chromium EME warning)
 (() => {
   const origWarn = console.warn.bind(console);
   const origError = console.error.bind(console);
   console.warn = (...args: any[]) => {
     const s = String(args[0] ?? '');
-    // Spotify EME robustness warning (harmless)
-    if (s.includes('robustness level be specified')) return;
+    if (s.includes('robustness level be specified')) return; // filter if emitted by app code
     origWarn(...args);
   };
   console.error = (...args: any[]) => {
     const s = String(args[0] ?? '');
-    // Some regions/tracks return 403 on audio-features (non-fatal)
-    if (s.includes('Audio features fetch failed')) return;
+    if (s.includes('Audio features fetch failed')) return; // keep console clean
     origError(...args);
+  };
+})();
+
+// Intercept Spotify audio-features 403/429 and return empty JSON to avoid noisy logs in vendor bundles
+(() => {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : (input as Request).url;
+
+    if (url && url.startsWith('https://api.spotify.com/v1/audio-features')) {
+      try {
+        const resp = await origFetch(input as any, init);
+        if (resp.status === 403 || resp.status === 429) {
+          return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return resp;
+      } catch {
+        // Network/other error: return safe empty object to prevent vendor logs
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return origFetch(input as any, init);
   };
 })();
 
@@ -40,23 +64,32 @@ declare global {
     Spotify: any;
     director?: VisualDirector;
 
-    // Optional browser fallback libs (we won't use them unless you enable manually)
-    TikTokLiveConnector?: any;
-    WebcastPushConnection?: any;
-
-    // Configuration hooks
+    // Configuration hook (we will set this on boot so console.log shows a value)
     TIKTOK_PROXY_URL?: string;
   }
 }
 
-// Set your default proxy URL here as a last-resort fallback
+// Hard fallback if nothing else is present
 const DEFAULT_TIKTOK_PROXY = 'https://dwdw-7a4i.onrender.com';
 
 const CLIENT_ID = '927fda6918514f96903e828fcd6bb576';
 const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString();
 
+function readProxyURL(): string | null {
+  const fromWindow = (window as any).TIKTOK_PROXY_URL;
+  const fromMeta = document.querySelector('meta[name="tiktok-proxy"]')?.getAttribute('content');
+  const fromLS = localStorage.getItem('TIKTOK_PROXY_URL');
+  const v = String(fromWindow || fromMeta || fromLS || DEFAULT_TIKTOK_PROXY || '').trim();
+  if (v && /^https?:\/\//i.test(v)) return v.replace(/\/+$/, '');
+  return null;
+}
+
 (async function boot() {
   ensureRoute();
+
+  // Ensure window.TIKTOK_PROXY_URL is always defined at runtime
+  const proxy = readProxyURL();
+  if (proxy) (window as any).TIKTOK_PROXY_URL = proxy;
 
   const cache = new Cache('dwdw-v1');
 
@@ -82,7 +115,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   (window as any).director = director;
 
-  // Emo Slashes collector image(s)
+  // Optional assets for a scene
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
 
@@ -106,7 +139,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     return false;
   }
 
-  // Bind controls
+  // Controls
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {
@@ -114,7 +147,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       requestSceneSmart(val);
     });
   }
-
   document.getElementById('btn-crossfade')?.addEventListener('click', () => director.crossfadeNow());
   document.getElementById('btn-quality')?.addEventListener('click', () => director.toggleQualityPanel());
   document.getElementById('btn-accessibility')?.addEventListener('click', () => director.toggleAccessibilityPanel());
@@ -261,7 +293,8 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   }
   function setTTStatus(text: string) { if (ttStatusEl) ttStatusEl.textContent = text; }
   function setProxyLabel() {
-    const p = getTikTokProxy();
+    const p = readProxyURL();
+    if (p) (window as any).TIKTOK_PROXY_URL = p; // keep window var in sync
     if (ttProxyEl) ttProxyEl.textContent = `Proxy: ${p || 'not set'}`;
   }
   function setLastAction(text: string) { if (lastActionEl) lastActionEl.textContent = text; }
@@ -313,8 +346,13 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
           <span id="tt-proxy">Proxy: —</span>
         </div>
 
+        <div style="display:flex; gap:6px; align-items:center; color:#9aa; font-size:12px;">
+          <button id="btn-set-proxy" title="Set proxy URL">Set Proxy</button>
+          <button id="btn-clear-proxy" title="Clear stored proxy">Clear</button>
+        </div>
+
         <div style="color:#9aa; font-size:12px;">
-          Go live on TikTok, then enter your username (e.g., lmohss) or paste your profile link and Connect.
+          Go LIVE on TikTok, then enter your username (e.g., lmohss) or paste your profile link and Connect.
         </div>
 
         <div style="display:flex; gap:6px; align-items:center;">
@@ -337,20 +375,38 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
     const btnConnect = panel.querySelector('#btn-tt-connect') as HTMLButtonElement;
     const btnDisconnect = panel.querySelector('#btn-tt-disconnect') as HTMLButtonElement;
+    const btnSetProxy = panel.querySelector('#btn-set-proxy') as HTMLButtonElement;
+    const btnClearProxy = panel.querySelector('#btn-clear-proxy') as HTMLButtonElement;
     const inputUser = panel.querySelector('#tiktok-username') as HTMLInputElement;
 
     setProxyLabel();
+
+    btnSetProxy.onclick = () => {
+      const current = readProxyURL() || '';
+      const next = prompt('Enter proxy base URL (https://… no trailing slash):', current) || '';
+      const val = next.trim().replace(/\/+$/, '');
+      if (/^https?:\/\//i.test(val)) {
+        localStorage.setItem('TIKTOK_PROXY_URL', val);
+        (window as any).TIKTOK_PROXY_URL = val;
+        setProxyLabel();
+        setTTStatus('Proxy set.');
+      } else {
+        setTTStatus('Invalid URL.');
+      }
+    };
+    btnClearProxy.onclick = () => {
+      localStorage.removeItem('TIKTOK_PROXY_URL');
+      setProxyLabel();
+      setTTStatus('Stored proxy cleared. Using meta/default.');
+    };
 
     btnConnect.onclick = async () => {
       const raw = inputUser.value.trim();
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
-        setTTStatus('Connecting via proxy…');
-        await tiktokConnectViaProxy(uniqueId);
-        setTTStatus(`Connected via proxy to @${uniqueId}`);
+        await tiktokConnectViaProxy(uniqueId); // proxy-only, no browser fallback
       } catch (e: any) {
-        console.debug('TikTok connect failed', e);
         setTTStatus(`Connect failed: ${e?.message || e}`);
       }
     };
@@ -369,7 +425,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     };
   }
 
-  // Ensure Queue button exists
+  // Add Queue button if missing
   let btnQueue = document.getElementById('btn-queue') as HTMLButtonElement | null;
   if (!btnQueue) {
     const toolbarRight = document.querySelector('.toolbar .right') as HTMLElement | null;
@@ -546,7 +602,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     }
   }
 
-  // ——— TikTok bridge (proxy only) ———
+  // ——— TikTok bridge (proxy-only) ———
 
   function normalizeTikTokId(input: string): string | null {
     if (!input) return null;
@@ -563,17 +619,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     return s;
   }
 
-  function getTikTokProxy(): string | null {
-    const fromWindow = (window as any).TIKTOK_PROXY_URL;
-    const fromMeta = document.querySelector('meta[name="tiktok-proxy"]')?.getAttribute('content');
-    const fromLS = localStorage.getItem('TIKTOK_PROXY_URL');
-    const v = String(fromWindow || fromMeta || fromLS || DEFAULT_TIKTOK_PROXY || '').trim();
-    if (v && v.startsWith('http')) return v.replace(/\/+$/, '');
-    return null;
-  }
-
-  let ttEventSource: EventSource | null = null;
-
   async function checkProxyHealth(base: string): Promise<void> {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 6000);
@@ -587,11 +632,18 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     }
   }
 
+  let ttEventSource: EventSource | null = null;
+
   async function tiktokConnectViaProxy(username: string) {
     await tiktokDisconnect();
 
-    const base = getTikTokProxy();
+    const base = readProxyURL();
     if (!base) throw new Error('Proxy URL not configured');
+    (window as any).TIKTOK_PROXY_URL = base; // keep it visible in console
+
+    setProxyLabel();
+    setTTStatus('Connecting via proxy…');
+
     try {
       await checkProxyHealth(base);
     } catch {
