@@ -21,27 +21,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Do NOT enable cache: pnpm here; it invokes pnpm before it's installed
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
-      # Option A: install pnpm via the official action (simple and reliable)
+      # Ensure pnpm is on PATH
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
           run_install: false
 
-      # Option B (alternative): use Corepack instead of the action
-      # - name: Enable Corepack and activate pnpm
-      #   shell: bash
-      #   run: |
-      #     corepack enable
-      #     corepack prepare pnpm@9.12.0 --activate
-      #     pnpm --version
+      - name: Verify pnpm
+        run: pnpm --version
+
+      # Optional: cache pnpm store after pnpm is available
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
