@@ -16,16 +16,35 @@ import { initResponsiveHUD } from '@ui/responsive';
 
 initResponsiveHUD();
 
+// Quiet known noisy warnings/errors that are not actionable
+(() => {
+  const origWarn = console.warn.bind(console);
+  const origError = console.error.bind(console);
+  console.warn = (...args: any[]) => {
+    const s = String(args[0] ?? '');
+    // Spotify EME robustness warning (harmless)
+    if (s.includes('robustness level be specified')) return;
+    origWarn(...args);
+  };
+  console.error = (...args: any[]) => {
+    const s = String(args[0] ?? '');
+    // Some regions/tracks return 403 on audio-features (non-fatal)
+    if (s.includes('Audio features fetch failed 403')) return;
+    origError(...args);
+  };
+})();
+
 declare global {
   interface Window {
     onSpotifyWebPlaybackSDKReady?: () => void;
     Spotify: any;
     director?: VisualDirector;
 
+    // Optional (browser fallback – we’ll avoid it if proxy is set)
     TikTokLiveConnector?: any;
     WebcastPushConnection?: any;
 
-    // Set in index.html to use the proxy: window.TIKTOK_PROXY_URL = 'https://your-app.onrender.com'
+    // Set in index.html
     TIKTOK_PROXY_URL?: string;
   }
 }
@@ -60,6 +79,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   (window as any).director = director;
 
+  // Emo Slashes collector image(s)
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/demon-slayer-hero.png`);
   director.setEmoHeroImage(`${import.meta.env.BASE_URL}assets/Demon-Slayer-PNG-Pic.png`);
   // director.setEmoBackgroundImage(`${import.meta.env.BASE_URL}assets/demon-slayer-bg.jpg`);
@@ -67,7 +87,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   const ui = new UI(auth, api, player, director, vj, cache);
   ui.init();
 
-  // Scene smart fallback (covers mislabeled scene ids)
+  // Scene smart fallback (covers mislabeled/internal scene ids)
   const sceneFallbacks: Record<string, string[]> = {
     'Particles': ['Particles', 'Particle Field', 'Neon Particles', 'Flow Field'],
     'Tunnel': ['Tunnel', 'Audio Tunnel', 'Wormhole', 'Beat Tunnel'],
@@ -84,6 +104,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
     return false;
   }
 
+  // Scene picker
   const sceneSelect = document.getElementById('scene-select') as HTMLSelectElement | null;
   if (sceneSelect) {
     sceneSelect.addEventListener('change', (e) => {
@@ -184,13 +205,6 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
 
   // ————————————————————————————————————————————————————————————————
   // TikTok livestream chat -> Spotify queue commands
-  // Commands:
-  //   !play Song Name -Artist Name
-  //   !skip
-  //   !pause
-  //   !resume
-  //   !volume 0-100
-  // Includes simple cooldowns to prevent spam.
   // ————————————————————————————————————————————————————————————————
 
   type QueueItem = {
@@ -317,12 +331,12 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       const uniqueId = normalizeTikTokId(raw);
       if (!uniqueId) { setTTStatus('Enter username like lmohss or paste your profile URL'); return; }
       try {
-        // Prefer proxy if configured; fallback to browser connector
-        if (getTikTokProxy()) {
+        const proxy = getTikTokProxy();
+        if (proxy) {
           await tiktokConnectViaProxy(uniqueId);
           setTTStatus(`Connected via proxy to @${uniqueId}`);
         } else {
-          await tiktokConnectBrowser(uniqueId);
+          await tiktokConnectBrowser(uniqueId); // fallback
           setTTStatus(`Connected to @${uniqueId}`);
         }
       } catch (e: any) {
@@ -359,7 +373,7 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   }
   btnQueue?.addEventListener('click', () => toggleQueuePanel());
 
-  // Minimal Spotify helpers
+  // Spotify helpers
   async function spotifyGET<T>(pathAndQuery: string): Promise<T> {
     const token = auth.getAccessToken();
     if (!token) throw new Error('No access token');
@@ -550,19 +564,36 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
   let ttConnBrowser: any | null = null;
   let ttEventSource: EventSource | null = null;
 
+  async function checkProxyHealth(base: string): Promise<void> {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 5000);
+    try {
+      const res = await fetch(`${base}/health`, { signal: ctl.signal });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const j = await res.json().catch(() => ({}));
+      if (!j || j.ok !== true) throw new Error('health not ok');
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   async function tiktokConnectViaProxy(username: string) {
     await tiktokDisconnect();
 
     const base = getTikTokProxy();
-    if (!base) throw new Error('No proxy configured');
+    if (!base) throw new Error('Proxy URL not configured');
+    try {
+      await checkProxyHealth(base);
+    } catch {
+      throw new Error('Proxy not reachable. Check Render URL and /health');
+    }
 
     const sseURL = `${base}/sse/${encodeURIComponent(username)}`;
-    // Ensure CORS-friendly EventSource
     const es = new EventSource(sseURL, { withCredentials: false } as any);
     ttEventSource = es;
 
     es.onopen = () => setTTStatus(`Connected via proxy to @${username}`);
-    es.onerror = () => setTTStatus('Proxy connection error (is your server running?)');
+    es.onerror = () => setTTStatus('Proxy connection error (server sleeping or not reachable)');
     es.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
@@ -618,22 +649,23 @@ const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).toString
       (window.TikTokLiveConnector && window.TikTokLiveConnector.WebcastPushConnection) ||
       (window as any).WebcastPushConnection;
 
-    ttConnBrowser = new Ctor(username, { enableExtendedGiftInfo: false });
+    const conn = new Ctor(username, { enableExtendedGiftInfo: false });
+    ttConnBrowser = conn;
 
-    ttConnBrowser.on('chat', (data: any) => {
+    conn.on('chat', (data: any) => {
       const user = data?.uniqueId || data?.nickname || 'user';
       const comment: string = data?.comment || '';
       if (!comment) return;
       handleIncomingChat(user, comment);
     });
 
-    ttConnBrowser.on('disconnected', () => setTTStatus('Disconnected'));
-    ttConnBrowser.on('error', (e: any) => {
+    conn.on('disconnected', () => setTTStatus('Disconnected'));
+    conn.on('error', (e: any) => {
       console.debug('TikTok connection error:', e?.message || e);
       setTTStatus(`Error: ${e?.message || 'unknown'}`);
     });
 
-    await ttConnBrowser.connect();
+    await conn.connect();
   }
 
   async function tiktokDisconnect() {
