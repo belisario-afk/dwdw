@@ -1,3 +1,23 @@
-node_modules
-dist
+# dependencies
+node_modules/
+.pnp.cjs
+.pnp.loader.mjs
+
+# build output
+dist/
+build/
+.vite/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env
+.env
+.env.*
+!.env.example
+
+# misc
 .DS_Store
