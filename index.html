@@ -9,7 +9,8 @@
     <title>dwdw</title>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="alternate icon" href="/favicon.ico" />
+    <!-- Removed alternate .ico to avoid 404. Add it back if you add public/favicon.ico -->
+    <!-- <link rel="alternate icon" href="/favicon.ico" /> -->
 
     <style>
       :root {
@@ -157,7 +158,7 @@
           <option value="Emo Slashes">Emo Slashes</option>
         </select>
 
-        <!-- New: Lyrics font picker -->
+        <!-- Lyrics font picker -->
         <label class="label" for="lyrics-font">Font</label>
         <select id="lyrics-font" title="Lyrics font">
           <option>Bebas Neue</option>
@@ -182,13 +183,12 @@
     <div id="panels" aria-live="polite" aria-relevant="additions removals"></div>
     <div id="screensaver" aria-hidden="true"></div>
 
-    <!-- Ensure the SDK callback exists even if SDK loads before app -->
     <script>
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function() {};
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
-    <!-- New: Lyrics font switching logic (persists to localStorage) -->
+    <!-- Lyrics font switching logic (persists to localStorage) -->
     <script>
       (function () {
         const FONTS = {
@@ -207,22 +207,18 @@
           try { localStorage.setItem(KEY, label); } catch (_) {}
         }
 
-        // Initialize from saved value
         try {
           const saved = localStorage.getItem(KEY);
           if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
             select.value = saved;
             apply(saved);
           } else {
-            // Ensure default is applied once on first load
             apply(select.value);
           }
         } catch (_) {
-          // localStorage may be unavailable; still apply current selection
           apply(select.value);
         }
 
-        // Update on change
         select.addEventListener('change', (e) => apply(e.target.value));
       })();
     </script>
