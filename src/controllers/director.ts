@@ -430,7 +430,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('access', undefined);
   }
 
-  // VJ: Flow Field controls (single, unified panel)
+  // VJ: Flow Field controls
   toggleVJPanel() {
     const s = this.flowSettings;
     this.mountPanel('vj', 'VJ — Flow Field', (panel) => {
@@ -758,6 +758,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = '#ffb3b3';
       ctx.font = '14px system-ui, sans-serif';
+      ctx.textAlign = 'left';
       ctx.fillText(`Scene error: ${sceneName}`, 12, 22);
     }
   }
@@ -1686,7 +1687,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.sgDownbeatCounter % 2 === 0) this.reseedStained(this.bufferA.width, this.bufferA.height);
   }
   private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    try { this.ensureStained(w, h); } catch { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); return; }
+    try { this.ensureStained(w, h); } catch (e) { console.error('Voronoi build failed', e); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); return; }
 
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
     bg.addColorStop(0, '#07080b'); bg.addColorStop(1, '#0a0a10');
@@ -1746,6 +1747,38 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     this.drawSparks(ctx, w, h, dt);
   }
+  // Build Voronoi diagram by half-plane clipping
+  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+    const bounds = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
+    for (let i = 0; i < sites.length; i++) {
+      const s = sites[i];
+      let poly = bounds.slice();
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const t = sites[j];
+        const nx = t.x - s.x;
+        const ny = t.y - s.y;
+        const px = (s.x + t.x) / 2;
+        const py = (s.y + t.y) / 2;
+        poly = clipPolygonHalfPlane(poly, nx, ny, px, py);
+        if (poly.length === 0) break;
+      }
+      if (poly.length >= 3) {
+        let cx = 0, cy = 0;
+        for (const p of poly) { cx += p.x; cy += p.y; }
+        cx /= poly.length; cy /= poly.length;
+        let rad = 0;
+        for (const p of poly) {
+          const d = Math.hypot(p.x - cx, p.y - cy);
+          if (d > rad) rad = d;
+        }
+        cells.push({ pts: poly, cx, cy, color: s.color, radius: rad });
+      }
+    }
+    return cells;
+  }
+
   private spawnSparks(count: number) {
     if (!this.sgCells.length) return;
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
@@ -2123,7 +2156,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.strokeText(text, cx, by);
     ctx.fillText(text, cx, by);
 
-    // Per-line progress highlight
+    // Per-line progress highlight (only if synced)
     if (this.lyrics?.synced) {
       const baseHue =
         this.keyHueTarget != null && this.keyColorEnabled
@@ -2300,6 +2333,74 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (this.pbPollTimer) clearInterval(this.pbPollTimer);
     this.pbPollTimer = setInterval(tick, 1000);
     tick().catch(() => {});
+  }
+
+  // Fetch synced/unsynced lyrics from LRCLIB (no auth)
+  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull): Promise<void> {
+    try {
+      const title = encodeURIComponent(track.name || '');
+      const artist = encodeURIComponent(track.artists?.[0]?.name || '');
+      const url = `https://lrclib.net/api/search?track_name=${title}&artist_name=${artist}`;
+
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(url, { signal: ctrl.signal } as any);
+      clearTimeout(to);
+
+      if (!res.ok) {
+        this.lyrics = null;
+        this.currentLyricIndex = -1;
+        return;
+      }
+
+      const arr = await res.json();
+      if (!Array.isArray(arr) || arr.length === 0) {
+        this.lyrics = null;
+        this.currentLyricIndex = -1;
+        return;
+      }
+
+      // Prefer a result whose duration matches the track duration within ~2s
+      let item: any = arr[0];
+      const trackDurSec = Math.max(1, Math.round((track.duration_ms ?? 0) / 1000));
+      const best = arr.find((it: any) => {
+        const d =
+          Math.round(it?.duration ?? it?.durationMs ?? it?.duration_ms ?? 0) ||
+          Math.round(it?.length ?? 0);
+        return d > 0 && Math.abs(d - trackDurSec) <= 2;
+      });
+      if (best) item = best;
+
+      const syncedText: string | undefined = item?.syncedLyrics;
+      const plainText: string | undefined = item?.plainLyrics;
+
+      let lines: LyricLine[] = [];
+      let synced = false;
+
+      if (typeof syncedText === 'string' && syncedText.trim()) {
+        lines = parseLRC(syncedText);
+        synced = true;
+      } else if (typeof plainText === 'string' && plainText.trim()) {
+        lines = parsePlainLyrics(plainText, trackDurSec);
+      }
+
+      if (lines.length) {
+        this.lyrics = {
+          provider: 'lrclib',
+          trackId: track.id ?? null,
+          synced,
+          lines,
+          updatedAt: Date.now(),
+        };
+        this.currentLyricIndex = -1;
+      } else {
+        this.lyrics = null;
+        this.currentLyricIndex = -1;
+      }
+    } catch {
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
+    }
   }
 
   // Utilities
