@@ -279,7 +279,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     window.addEventListener('resize', onResize);
     onResize();
 
-    // Wire panel buttons (best-effort)
+    // Wire panel buttons (click-only, no keyboard shortcuts)
     this.autowirePanelButtons();
 
     // Expose for console debugging
@@ -2275,10 +2275,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('access', false);
   }
 
+  // Click-only wiring: only wire to explicit buttons, no data-action, no keyboard shortcuts
   private autowirePanelButtons() {
     const wire = () => {
-      const btnQ = document.querySelector<HTMLElement>('#btn-quality,[data-action="quality"]');
-      const btnA = document.querySelector<HTMLElement>('#btn-accessibility,[data-action="accessibility"]');
+      const btnQ = document.querySelector<HTMLElement>('#btn-quality');
+      const btnA = document.querySelector<HTMLElement>('#btn-accessibility');
 
       if (btnQ) {
         btnQ.addEventListener('click', (e) => { e.preventDefault(); this.toggleQualityPanel(); });
@@ -2291,7 +2292,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Try immediately
     wire();
 
-    // Watch toolbar changes just in case UI mounts later
+    // Watch toolbar changes in case UI mounts later
     try {
       this.controlsObserver = new MutationObserver(() => wire());
       this.controlsObserver.observe(document.body, { childList: true, subtree: true });
@@ -2309,172 +2310,53 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 }
 
 // Polygon clipping against half-plane for Voronoi
-function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, nx: number, ny: number, px: number, py: number) {
+function clipPolygonHalfPlane(
+  poly: Array<{ x: number; y: number }>,
+  nx: number,
+  ny: number,
+  px: number,
+  py: number
+) {
   const out: Array<{ x: number; y: number }> = [];
   const side = (x: number, y: number) => (x - px) * nx + (y - py) * ny <= 0;
+
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i];
     const b = poly[(i + 1) % poly.length];
     const ina = side(a.x, a.y);
     const inb = side(b.x, b.y);
+
     if (ina && inb) {
+      // both inside: keep end point
       out.push(b);
     } else if (ina && !inb) {
+      // leaving: keep intersection only
       const t = intersectParam(a, b, nx, ny, px, py);
       out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
     } else if (!ina && inb) {
+      // entering: add intersection + end point
       const t = intersectParam(a, b, nx, ny, px, py);
       out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
       out.push(b);
     }
+    // else both outside: add nothing
   }
+
   return out;
 }
-function intersectParam(a: { x: number; y: number }, b: { x: number; y: number }, nx: number, ny: number, px: number, py: number) {
+
+// Keep intersectParam exactly like this (or add it if missing right below)
+function intersectParam(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  nx: number,
+  ny: number,
+  px: number,
+  py: number
+) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  const t = ((px - a.x) * nx + (py - a.y) * ny) / (dx * nx + dy * ny || 1e-6);
+  const denom = dx * nx + dy * ny || 1e-6;
+  const t = ((px - a.x) * nx + (py - a.y) * ny) / denom;
   return Math.max(0, Math.min(1, t));
-}
-
-// Math helpers
-function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
-function clampInt(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v | 0)); }
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-  ctx.lineTo(x + rr, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-  ctx.lineTo(x, y + rr);
-  ctx.quadraticCurveTo(x, y, x + rr, y);
-  ctx.closePath();
-}
-function angularDelta(a: number, b: number) {
-  let d = (b - a) % 360;
-  if (d > 180) d -= 360;
-  if (d < -180) d += 360;
-  return d;
-}
-
-// Color helpers
-function hexToRgb(hex: string): RGB | null {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
-  if (!m) return null;
-  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-}
-function rgbToHsl({ r, g, b }: RGB): HSL {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0, l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h *= 60;
-  }
-  return { h, s, l };
-}
-function hslToRgb(h: number, s: number, l: number): RGB {
-  h = ((h % 360) + 360) % 360;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let r1 = 0, g1 = 0, b1 = 0;
-  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else { r1 = c; g1 = 0; b1 = x; }
-  return { r: Math.round((r1 + m) * 255), g: Math.round((g1 + m) * 255), b: Math.round((b1 + m) * 255) };
-}
-function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
-  const base = hslToRgb(hue, 1, 0.5);
-  const dom = hslToRgb((hue + 0) % 360, 0.8, 0.5);
-  const sec = hslToRgb((hue + 180) % 360, 0.7, 0.5);
-  const fmt = (c: RGB) => `#${((1 << 24) + (c.r << 16) + (c.g << 8) + c.b).toString(16).slice(1)}`;
-  const out: UIPalette = {
-    dominant: fmt(dom),
-    secondary: fmt(sec),
-    colors: p.colors.map((_, i) => fmt(hslToRgb((hue + i * 30) % 360, 0.75, 0.5)))
-  };
-  return out;
-}
-function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
-  const mixHex = (ha: string, hb: string) => {
-    const ra = hexToRgb(ha)!, rb = hexToRgb(hb)!;
-    const r = Math.round(ra.r + (rb.r - ra.r) * t);
-    const g = Math.round(ra.g + (rb.g - ra.g) * t);
-    const b2 = Math.round(ra.b + (rb.b - ra.b) * t);
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b2).toString(16).slice(1)}`;
-    };
-  return {
-    dominant: mixHex(a.dominant, b.dominant),
-    secondary: mixHex(a.secondary, b.secondary),
-    colors: a.colors.map((c, i) => mixHex(c, b.colors[i % b.colors.length]))
-  };
-}
-function tintRgbTowardHue(c: RGB, hue: number, amt: number): RGB {
-  const hsl = rgbToHsl(c);
-  const mixed = hslToRgb(hue, Math.min(1, hsl.s + amt * 0.5), Math.min(1, hsl.l + amt * 0.1));
-  return {
-    r: Math.round(c.r + (mixed.r - c.r) * amt),
-    g: Math.round(c.g + (mixed.g - c.g) * amt),
-    b: Math.round(c.b + (mixed.b - c.b) * amt)
-  };
-}
-
-// Lyrics parsers
-function parseLRC(lrc: string): LyricLine[] {
-  const lines: LyricLine[] = [];
-  const re = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.*)/g;
-  let m: RegExpExecArray | null;
-  const tmp: Array<{ t: number; text: string }> = [];
-  while ((m = re.exec(lrc)) !== null) {
-    const min = parseInt(m[1], 10);
-    const sec = parseInt(m[2], 10);
-    const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
-    const t = min * 60 + sec + ms / 1000;
-    tmp.push({ t, text: (m[4] || '').trim() });
-  }
-  tmp.sort((a, b) => a.t - b.t);
-  for (let i = 0; i < tmp.length; i++) {
-    const start = tmp[i].t;
-    const end = i + 1 < tmp.length ? tmp[i + 1].t : start + 5;
-    lines.push({ start, end, text: tmp[i].text });
-  }
-  return lines;
-}
-function parsePlainLyrics(text: string, durationSec: number): LyricLine[] {
-  const rows = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!rows.length) return [];
-  const per = Math.max(3, Math.floor(durationSec / rows.length));
-  const out: LyricLine[] = [];
-  let t = 0;
-  for (const row of rows) {
-    out.push({ start: t, end: t + per, text: row });
-    t += per;
-  }
-  if (out.length) out[out.length - 1].end = durationSec;
-  return out;
-}
-
-// Image loader
-async function loadImage(url: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
-  });
 }
