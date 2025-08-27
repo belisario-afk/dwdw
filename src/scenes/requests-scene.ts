@@ -2,12 +2,21 @@ import { VisualDirector, type SceneDef } from '../controllers/director';
 
 export type SongRequestPayload = {
   id?: string;
-  userName: string;
-  songTitle: string;
+  userName?: string;
+  songTitle?: string;
   pfpUrl?: string;
   albumArtUrl?: string;
   color?: string;
   ttlSec?: number;
+  // Common alternates we normalize:
+  name?: string; displayName?: string; username?: string; user?: string; sender?: string;
+  avatar?: string; profileImage?: string; photo?: string; picture?: string; pfp?: string;
+  title?: string; trackTitle?: string; track?: string; song?: string;
+  artist?: string; artist_name?: string; artistName?: string;
+  albumArt?: string; cover?: string; artwork?: string; thumbnail?: string; image?: string; img?: string; thumbnail_url?: string;
+  trackId?: string; track_id?: string; id_str?: string;
+  uri?: string; trackUri?: string; trackURI?: string; spotifyUri?: string; spotify_uri?: string;
+  url?: string; track_url?: string;
 };
 
 type Floater = {
@@ -26,6 +35,15 @@ type Floater = {
   pulse: number;
   bornAt: number;
   wantRemove: boolean;
+
+  // smooth motion
+  seedX: number; seedY: number;
+  phaseX: number; phaseY: number;
+  oscSpeedX: number; oscSpeedY: number;
+  ampX: number; ampY: number;
+
+  // placeholders that can be resolved later
+  awaitingMeta?: boolean;
 };
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -41,6 +59,63 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
+
+function normalizePayload(raw: any): { base: SongRequestPayload; trackRef?: string } {
+  const base: SongRequestPayload = { ...raw };
+
+  const userName =
+    raw.userName ?? raw.username ?? raw.displayName ?? raw.name ?? raw.user ?? raw.sender;
+  if (userName) base.userName = String(userName);
+
+  const pfpUrl =
+    raw.pfpUrl ?? raw.avatar ?? raw.profileImage ?? raw.photo ?? raw.picture ?? raw.pfp;
+  if (pfpUrl) base.pfpUrl = String(pfpUrl);
+
+  const albumArtUrl =
+    raw.albumArtUrl ?? raw.albumArt ?? raw.cover ?? raw.artwork ?? raw.thumbnail ?? raw.image ?? raw.img ?? raw.thumbnail_url;
+  if (albumArtUrl) base.albumArtUrl = String(albumArtUrl);
+
+  const songTitle =
+    raw.songTitle ??
+    raw.title ??
+    raw.trackTitle ??
+    raw.song ??
+    (raw.artist || raw.artist_name || raw.artistName
+      ? `${raw.artist || raw.artist_name || raw.artistName} — ${raw.track || ''}`.trim()
+      : raw.track);
+  if (songTitle) base.songTitle = String(songTitle);
+
+  // Track ref: URI/URL/ID
+  const trackRef =
+    raw.uri ?? raw.trackUri ?? raw.trackURI ?? raw.spotifyUri ?? raw.spotify_uri ??
+    raw.track_url ?? raw.url ?? raw.trackId ?? raw.track_id ?? raw.id_str;
+  return { base, trackRef: trackRef ? String(trackRef) : undefined };
+}
+
+function parseSpotifyTrackId(ref: string | undefined): string | null {
+  if (!ref) return null;
+  // spotify:track:ID
+  const m1 = /^spotify:track:([A-Za-z0-9]+)$/.exec(ref);
+  if (m1) return m1[1];
+  // https://open.spotify.com/track/ID
+  const m2 = /open\.spotify\.com\/track\/([A-Za-z0-9]+)/.exec(ref);
+  if (m2) return m2[1];
+  // raw id (best-effort)
+  if (/^[A-Za-z0-9]{8,}$/.test(ref)) return ref;
+  return null;
+}
+
+async function fromSpotifyOEmbed(trackId: string): Promise<{ title?: string; thumb?: string } | null> {
+  try {
+    const url = `https://open.spotify.com/oembed?url=${encodeURIComponent(`https://open.spotify.com/track/${trackId}`)}`;
+    const r = await fetch(url, { mode: 'cors' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return { title: j?.title, thumb: j?.thumbnail_url };
+  } catch {
+    return null;
+  }
+}
 
 function makeRequestsScene(): SceneDef {
   const floaters: Floater[] = [];
@@ -64,12 +139,11 @@ function makeRequestsScene(): SceneDef {
       }
     });
   }
-  function toggleDemo(director: VisualDirector) {
+  function toggleDemo(_director: VisualDirector) {
     demoOn = !demoOn;
+    try { localStorage.setItem('requests-demo', demoOn ? '1' : '0'); } catch {}
     if (demoOn) {
-      if (!demoTimer) {
-        demoTimer = setInterval(() => spawnSampleOnce(), 2800);
-      }
+      if (!demoTimer) demoTimer = setInterval(() => spawnSampleOnce(), 2800);
     } else {
       if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
     }
@@ -97,7 +171,7 @@ function makeRequestsScene(): SceneDef {
   function drawNoRequestsHint(ctx: CanvasRenderingContext2D, w: number, h: number) {
     const msg1 = 'Requests Floaters';
     const msg2 = 'Waiting for song requests…';
-    const msg3 = 'Press D to toggle demo, R to spawn one. Or run window.__emitSongRequest({...})';
+    const msg3 = 'Press D for demo, R for one. Or call window.__emitSongRequest({...})';
 
     ctx.save();
     ctx.textAlign = 'center';
@@ -155,13 +229,15 @@ function makeRequestsScene(): SceneDef {
     ctx.closePath();
   }
 
-  // Add a request into the scene
-  async function addRequest(req: SongRequestPayload, director: VisualDirector) {
-    const id = String(req.id || `${req.userName}:${req.songTitle}:${Date.now()}:${Math.random()}`);
+  // Add a request (with meta resolution) into the scene
+  async function addRequest(rawReq: any, director: VisualDirector) {
+    const { base, trackRef } = normalizePayload(rawReq);
+
+    const id = String(base.id || `${base.userName || 'Guest'}:${base.songTitle || trackRef || ''}:${Date.now()}:${Math.random()}`);
     const existing = byId.get(id);
     if (existing) {
       existing.life = 0;
-      existing.ttl = Math.max(existing.ttl, (req.ttlSec ?? 14));
+      existing.ttl = Math.max(existing.ttl, (base.ttlSec ?? 14));
       return;
     }
 
@@ -170,31 +246,60 @@ function makeRequestsScene(): SceneDef {
 
     const flo: Floater = {
       id,
-      name: req.userName || 'Guest',
-      song: req.songTitle || '',
+      name: base.userName || 'Guest',
+      song: base.songTitle || (trackRef ? 'Loading…' : ''),
       pfp: null,
       album: null,
-      color: req.color || (director as any).palette?.dominant || '#22cc88',
+      color: base.color || (director as any).palette?.dominant || '#22cc88',
       x: rand(W * 0.15, W * 0.85),
       y: rand(H * 0.2, H * 0.75),
-      vx: rand(-40, 40),
-      vy: rand(-20, 20),
+      vx: 0, vy: 0,
       scale: 1,
       alpha: 0,
       life: 0,
-      ttl: Math.max(6, Math.min(60, req.ttlSec ?? 14)),
+      ttl: Math.max(6, Math.min(60, base.ttlSec ?? 14)),
       pulse: 0,
       bornAt: performance.now() / 1000,
       wantRemove: false,
+
+      seedX: Math.random() * 1000,
+      seedY: Math.random() * 1000,
+      phaseX: Math.random() * Math.PI * 2,
+      phaseY: Math.random() * Math.PI * 2,
+      oscSpeedX: 0.6 + Math.random() * 0.6,
+      oscSpeedY: 0.5 + Math.random() * 0.7,
+      ampX: 26 + Math.random() * 18,
+      ampY: 22 + Math.random() * 16,
+
+      awaitingMeta: false,
     };
 
-    if (req.pfpUrl) {
-      loadImage(req.pfpUrl).then(img => { flo.pfp = img; }).catch(() => { flo.pfp = null; });
+    // Load images (best-effort)
+    if (base.pfpUrl) {
+      loadImage(base.pfpUrl).then(img => { flo.pfp = img; }).catch(() => { flo.pfp = null; });
     }
-    if (req.albumArtUrl) {
-      loadImage(req.albumArtUrl).then(img => { flo.album = img; }).catch(() => { flo.album = null; });
+    if (base.albumArtUrl) {
+      loadImage(base.albumArtUrl).then(img => { flo.album = img; }).catch(() => { flo.album = null; });
     }
 
+    // Resolve missing meta from Spotify oEmbed if we have a track ref
+    const tid = parseSpotifyTrackId(trackRef || '');
+    if ((!base.songTitle || !base.albumArtUrl) && tid) {
+      flo.awaitingMeta = true;
+      fromSpotifyOEmbed(tid).then(async (meta) => {
+        flo.awaitingMeta = false;
+        if (!meta) return;
+        if (!base.songTitle && meta.title) flo.song = String(meta.title);
+        if (!base.albumArtUrl && meta.thumb) {
+          try {
+            const img = await loadImage(meta.thumb);
+            flo.album = img;
+          } catch {}
+        }
+      }).catch(() => { flo.awaitingMeta = false; });
+    }
+
+    // Limit count to avoid overdraw
     const maxFloaters = 24;
     if (floaters.length >= maxFloaters) {
       let oldestIdx = 0;
@@ -210,11 +315,11 @@ function makeRequestsScene(): SceneDef {
     byId.set(id, flo);
   }
 
-  // Event hookup
+  // Event hookup (support multiple event names)
   let hooked = false;
   const onSongReq = (ev: Event, director?: VisualDirector) => {
     try {
-      const ce = ev as CustomEvent<SongRequestPayload>;
+      const ce = ev as CustomEvent<any>;
       const payload = ce.detail;
       if (!payload || !director) return;
       addRequest(payload, director);
@@ -225,7 +330,7 @@ function makeRequestsScene(): SceneDef {
   function ensureGlobalEmitter() {
     if (!(window as any).__emitSongRequest) {
       (window as any).__emitSongRequest = (p: SongRequestPayload) => {
-        window.dispatchEvent(new CustomEvent<SongRequestPayload>('songrequest', { detail: p }));
+        window.dispatchEvent(new CustomEvent<any>('songrequest', { detail: p }));
       };
     }
   }
@@ -242,7 +347,17 @@ function makeRequestsScene(): SceneDef {
       if (!hooked) {
         hooked = true;
         ensureGlobalEmitter();
-        window.addEventListener('songrequest', (e) => onSongReq(e, director) as any);
+        const events = [
+          'songrequest',
+          'tiktok:songrequest',
+          'song-request',
+          'songQueued',
+          'queue:add',
+          'queue:add:request'
+        ];
+        for (const ev of events) {
+          window.addEventListener(ev, (e) => onSongReq(e, director) as any);
+        }
         ensureKeys(director);
 
         // Optional auto-demo via URL or localStorage
@@ -278,7 +393,6 @@ function makeRequestsScene(): SceneDef {
 
       const energy = (director as any).features?.energy ?? 0.5;
       const dance = (director as any).features?.danceability ?? 0.5;
-      const jitter = (0.8 + energy) * 6;
       beatPulse = Math.max(0, beatPulse - dt * 1.8);
 
       ctx.save();
@@ -302,40 +416,61 @@ function makeRequestsScene(): SceneDef {
           continue;
         }
 
-        f.vx += (Math.random() - 0.5) * jitter * 0.4;
-        f.vy += (Math.random() - 0.5) * jitter * 0.4;
-        f.vx = lerp(f.vx, f.vx * (1 + beatPulse * 0.4), 0.3);
-        f.vy = lerp(f.vy, f.vy * (1 + beatPulse * 0.4), 0.3);
-        f.x += (f.vx + Math.sin((time + i) * (0.6 + dance)) * 8) * dt;
-        f.y += (f.vy + Math.cos((time * 0.9 + i) * (0.7 + energy)) * 6) * dt;
+        // Smooth oscillator-based motion with soft boundary springs
+        const baseAmpScale = 0.8 + energy * 1.2 + beatPulse * 0.6;
+        const spdScale = 0.7 + dance * 0.8;
 
-        const margin = 24;
-        if (f.x < margin) { f.x = margin; f.vx = Math.abs(f.vx) * 0.8; }
-        else if (f.x > w - margin) { f.x = w - margin; f.vx = -Math.abs(f.vx) * 0.8; }
-        if (f.y < margin) { f.y = margin; f.vy = Math.abs(f.vy) * 0.8; }
-        else if (f.y > h - margin) { f.y = h - margin; f.vy = -Math.abs(f.vy) * 0.8; }
+        f.phaseX += dt * f.oscSpeedX * spdScale;
+        f.phaseY += dt * f.oscSpeedY * spdScale;
 
+        const desiredVx = Math.sin(f.phaseX + f.seedX) * f.ampX * baseAmpScale;
+        const desiredVy = Math.cos(f.phaseY + f.seedY) * f.ampY * baseAmpScale;
+
+        f.vx = lerp(f.vx, desiredVx, 0.12);
+        f.vy = lerp(f.vy, desiredVy, 0.12);
+
+        // Soft spring toward safe area if near edges
+        const margin = 30;
+        const cx = w / 2, cy = h / 2;
+        let fx = 0, fy = 0;
+        if (f.x < margin) fx += (margin - f.x) * 1.2;
+        if (f.x > w - margin) fx -= (f.x - (w - margin)) * 1.2;
+        if (f.y < margin) fy += (margin - f.y) * 1.2;
+        if (f.y > h - margin) fy -= (f.y - (h - margin)) * 1.2;
+
+        // Gentle homing to center to keep motion contained
+        fx += (cx - f.x) * 0.02;
+        fy += (cy - f.y) * 0.02;
+
+        f.vx += fx * dt;
+        f.vy += fy * dt;
+
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+
+        // Scale pulse smooth
         f.pulse = Math.max(0, f.pulse - dt * 2.0);
-        const scalePulse = 1 + f.pulse * 0.12 + beatPulse * 0.05;
-        f.scale = lerp(f.scale, scalePulse, 0.2);
+        const scalePulse = 1 + f.pulse * 0.10 + beatPulse * 0.04;
+        f.scale = lerp(f.scale, scalePulse, 0.18);
 
         const baseDim = Math.max(80, Math.min(180, Math.min(w, h) * 0.18));
         const boxW = baseDim * 1.45;
         const boxH = baseDim * 0.9;
-        const cx = f.x, cy = f.y;
 
         ctx.save();
-        ctx.translate(cx, cy);
+        ctx.translate(f.x, f.y);
         ctx.scale(f.scale, f.scale);
         ctx.globalAlpha = f.alpha;
 
-        ctx.shadowBlur = 18 + 24 * (beatPulse + f.pulse) * 0.6;
+        // Panel
+        ctx.shadowBlur = 18 + 20 * (beatPulse + f.pulse) * 0.5;
         ctx.shadowColor = f.color;
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        drawRoundedRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, 14);
+        roundRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, 14);
         ctx.fill();
         ctx.shadowBlur = 0;
 
+        // Album square
         const square = baseDim * 0.66;
         const leftX = -boxW / 2 + 14;
         const topY = -square / 2;
@@ -346,6 +481,7 @@ function makeRequestsScene(): SceneDef {
           ctx.fillRect(leftX, topY, square, square);
         }
 
+        // PFP circle overlay
         const pfpR = square * 0.28;
         const pfpCx = leftX + square - pfpR * 0.8;
         const pfpCy = topY + square - pfpR * 0.8;
@@ -357,19 +493,22 @@ function makeRequestsScene(): SceneDef {
         if (f.pfp) {
           ctx.drawImage(f.pfp, pfpCx - pfpR, pfpCy - pfpR, pfpR * 2, pfpR * 2);
         } else {
+          // fallback avatar with initial
           ctx.fillStyle = 'rgba(255,255,255,0.2)';
           ctx.fillRect(pfpCx - pfpR, pfpCy - pfpR, pfpR * 2, pfpR * 2);
         }
         ctx.restore();
 
+        // Text block
         const txtX = leftX + square + 12;
         const txtW = boxW - (square + 14 + 12);
-        const name = f.name;
-        const song = f.song;
+        const name = f.name || 'Guest';
+        const song = f.song || (f.awaitingMeta ? 'Loading…' : '');
 
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
 
+        // Name
         ctx.fillStyle = '#fff';
         ctx.font = `700 ${Math.round(square * 0.22)}px var(--lyrics-font, system-ui), system-ui, sans-serif`;
         const nameY = -square * 0.15;
@@ -378,6 +517,7 @@ function makeRequestsScene(): SceneDef {
         ctx.strokeText(name, txtX, nameY);
         ctx.fillText(name, txtX, nameY);
 
+        // Song
         ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.font = `500 ${Math.round(square * 0.18)}px var(--lyrics-font, system-ui), system-ui, sans-serif`;
         const songY = nameY + square * 0.35;
@@ -387,11 +527,13 @@ function makeRequestsScene(): SceneDef {
         ctx.strokeText(songLine, txtX, songY);
         ctx.fillText(songLine, txtX, songY);
 
+        // Accent underline
         const underY = songY + square * 0.12;
-        const underW = Math.max(24, Math.min(txtW, (txtW * (0.35 + 0.65 * (beatPulse + f.pulse)))));
+        const progressW = (0.35 + 0.65 * (beatPulse + f.pulse));
+        const underW = Math.max(24, Math.min(txtW, txtW * progressW));
         ctx.globalAlpha = 0.9;
         ctx.fillStyle = hexToRgba(f.color, 0.9);
-        drawRoundedRect(ctx, txtX, underY, underW, Math.max(3, Math.round(square * 0.04)), 4);
+        roundRect(ctx, txtX, underY, underW, Math.max(3, Math.round(square * 0.04)), 4);
         ctx.fill();
         ctx.globalAlpha = 1;
 
@@ -404,8 +546,8 @@ function makeRequestsScene(): SceneDef {
       beatPulse = Math.min(1, beatPulse + 0.6);
       for (let i = 0; i < Math.min(6, floaters.length); i++) {
         const f = floaters[(Math.random() * floaters.length) | 0];
-        f.vx += (Math.random() - 0.5) * 120;
-        f.vy -= 60 + Math.random() * 60;
+        f.vx += (Math.random() - 0.5) * 40; // much smaller kicks than before
+        f.vy -= 20 + Math.random() * 30;
         f.pulse = Math.min(1, f.pulse + 1);
       }
     },
@@ -418,6 +560,7 @@ function makeRequestsScene(): SceneDef {
   return scene;
 
   function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
+    if (!text) return '';
     if (ctx.measureText(text).width <= maxW) return text;
     const ell = '…';
     let lo = 0, hi = text.length;
@@ -437,21 +580,6 @@ function makeRequestsScene(): SceneDef {
     const g = parseInt(m[2], 16);
     const b = parseInt(m[3], 16);
     return `rgba(${r},${g},${b},${a})`;
-  }
-
-  function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.lineTo(x + w - rr, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-    ctx.lineTo(x + w, y + h - rr);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-    ctx.lineTo(x + rr, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-    ctx.lineTo(x, y + rr);
-    ctx.quadraticCurveTo(x, y, x + rr, y);
-    ctx.closePath();
   }
 }
 
