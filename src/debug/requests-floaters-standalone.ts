@@ -65,11 +65,12 @@ type Floater = {
   function rand(min: number, max: number) { return min + Math.random() * (max - min); }
   function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
+  // IMPORTANT: no crossOrigin here; this allows drawing without ACAO (canvas will be tainted, which is fine)
   function loadImg(url: string): Promise<HTMLImageElement | null> {
     return new Promise((resolve) => {
       try {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        // DO NOT set img.crossOrigin for third-party hosts that don't send ACAO
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
         img.src = url;
@@ -164,13 +165,11 @@ type Floater = {
     const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
 
-    // Clear only; no background fill
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const W = c.width / dpr, H = c.height / dpr;
     ctx.clearRect(0, 0, W, H);
 
-    // Draw floaters
     for (let i = floaters.length - 1; i >= 0; i--) {
       const f = floaters[i];
       f.life += dt;
@@ -188,7 +187,7 @@ type Floater = {
       f.x += f.vx * dt;
       f.y += f.vy * dt;
 
-      // Dimensions
+      // Card geometry
       const base = Math.max(90, Math.min(200, Math.min(W, H) * 0.2));
       const boxW = base * 1.5;
       const boxH = base * 0.95;
@@ -253,9 +252,7 @@ type Floater = {
       ctx.restore();
     }
 
-    // Auto-hide if nothing to draw
     if (!floaters.length && c.style.display !== 'none') hide();
-
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
