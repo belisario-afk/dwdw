@@ -48,6 +48,114 @@ function makeRequestsScene(): SceneDef {
   let lastSizeW = 0, lastSizeH = 0;
   let beatPulse = 0;
 
+  // UI hints and demo helpers
+  let keysHooked = false;
+  let demoTimer: any = null;
+  let demoOn = false;
+
+  function ensureKeys(director: VisualDirector) {
+    if (keysHooked) return;
+    keysHooked = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        spawnSampleOnce();
+      } else if (e.key === 'd' || e.key === 'D') {
+        toggleDemo(director);
+      }
+    });
+  }
+  function toggleDemo(director: VisualDirector) {
+    demoOn = !demoOn;
+    if (demoOn) {
+      if (!demoTimer) {
+        demoTimer = setInterval(() => spawnSampleOnce(), 2800);
+      }
+    } else {
+      if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+    }
+  }
+  function spawnSampleOnce() {
+    const names = ['Alex','Riley','Sam','Jordan','Casey','Taylor'];
+    const songs = [
+      'Justice — D.A.N.C.E',
+      'Porter Robinson — Language',
+      'Pegboard Nerds — Hero',
+      'ODESZA — A Moment Apart',
+      'Daft Punk — One More Time',
+      'Madeon — The Prince'
+    ];
+    const name = names[(Math.random()*names.length)|0];
+    const song = songs[(Math.random()*songs.length)|0];
+    const pfp = 'https://i.pravatar.cc/128?img=' + (((Math.random()*70)|0)+1);
+    const alb = 'https://picsum.photos/seed/' + ((Math.random()*100000)|0) + '/256';
+    emitSongRequest({ userName: name, songTitle: song, pfpUrl: pfp, albumArtUrl: alb, color: sampleColor() });
+  }
+  function sampleColor() {
+    const arr = ['#22cc88','#cc2288','#22aacc','#ffaa22','#8a2be2','#00d4ff'];
+    return arr[(Math.random()*arr.length)|0];
+  }
+  function drawNoRequestsHint(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    const msg1 = 'Requests Floaters';
+    const msg2 = 'Waiting for song requests…';
+    const msg3 = 'Press D to toggle demo, R to spawn one. Or run window.__emitSongRequest({...})';
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Background plate
+    const boxW = Math.min(720, Math.floor(w * 0.9));
+    const boxH = 120;
+    const x = (w - boxW) / 2;
+    const y = h * 0.12;
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#000';
+    roundRect(ctx, x, y, boxW, boxH, 12);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Title
+    ctx.font = '700 22px system-ui, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(msg1, w/2, y + 36);
+    ctx.fillText(msg1, w/2, y + 36);
+
+    // Subtitle
+    ctx.font = '500 18px system-ui, sans-serif';
+    ctx.fillStyle = '#ddd';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeText(msg2, w/2, y + 66);
+    ctx.fillText(msg2, w/2, y + 66);
+
+    // Help
+    ctx.font = '400 14px system-ui, sans-serif';
+    ctx.fillStyle = '#bbb';
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeText(msg3, w/2, y + 92);
+    ctx.fillText(msg3, w/2, y + 92);
+
+    ctx.restore();
+  }
+  function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+  }
+
+  // Add a request into the scene
   async function addRequest(req: SongRequestPayload, director: VisualDirector) {
     const id = String(req.id || `${req.userName}:${req.songTitle}:${Date.now()}:${Math.random()}`);
     const existing = byId.get(id);
@@ -102,6 +210,8 @@ function makeRequestsScene(): SceneDef {
     byId.set(id, flo);
   }
 
+  // Event hookup
+  let hooked = false;
   const onSongReq = (ev: Event, director?: VisualDirector) => {
     try {
       const ce = ev as CustomEvent<SongRequestPayload>;
@@ -111,30 +221,40 @@ function makeRequestsScene(): SceneDef {
     } catch {}
   };
 
-  function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.lineTo(x + w - rr, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-    ctx.lineTo(x + w, y + h - rr);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-    ctx.lineTo(x + rr, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-    ctx.lineTo(x, y + rr);
-    ctx.quadraticCurveTo(x, y, x + rr, y);
-    ctx.closePath();
+  // Ensure a global emitter exists even if the bridge wasn’t loaded
+  function ensureGlobalEmitter() {
+    if (!(window as any).__emitSongRequest) {
+      (window as any).__emitSongRequest = (p: SongRequestPayload) => {
+        window.dispatchEvent(new CustomEvent<SongRequestPayload>('songrequest', { detail: p }));
+      };
+    }
+  }
+  function emitSongRequest(p: SongRequestPayload) {
+    ensureGlobalEmitter();
+    (window as any).__emitSongRequest(p);
   }
 
+  // Scene object
   const scene: SceneDef = {
     name: 'Requests Floaters',
     draw(ctx, w, h, time, dt, director) {
-      if (!(window as any).__songReqHooked) {
-        (window as any).__songReqHooked = true;
+      // One-time setup
+      if (!hooked) {
+        hooked = true;
+        ensureGlobalEmitter();
         window.addEventListener('songrequest', (e) => onSongReq(e, director) as any);
-        (window as any).__emitSongRequest = (p: SongRequestPayload) => {
-          window.dispatchEvent(new CustomEvent<SongRequestPayload>('songrequest', { detail: p }));
-        };
+        ensureKeys(director);
+
+        // Optional auto-demo via URL or localStorage
+        try {
+          const url = new URL(window.location.href);
+          const demoParam = url.searchParams.get('demo');
+          const saved = localStorage.getItem('requests-demo');
+          if (demoParam === '1' || saved === '1') {
+            demoOn = true;
+            if (!demoTimer) demoTimer = setInterval(() => spawnSampleOnce(), 2800);
+          }
+        } catch {}
       }
 
       if (w !== lastSizeW || h !== lastSizeH) {
@@ -142,6 +262,7 @@ function makeRequestsScene(): SceneDef {
         for (const f of floaters) { f.x = clamp(f.x, 40, w - 40); f.y = clamp(f.y, 40, h - 40); }
       }
 
+      // Background: subtle palette gradient + vignette
       const pal = (director as any).palette;
       const grad = ctx.createLinearGradient(0, 0, w, h);
       const c0 = pal?.colors?.[0] || pal?.dominant || '#223';
@@ -162,6 +283,11 @@ function makeRequestsScene(): SceneDef {
 
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
+
+      // Draw hint if no floaters yet
+      if (floaters.length === 0) {
+        drawNoRequestsHint(ctx, w, h);
+      }
 
       for (let i = floaters.length - 1; i >= 0; i--) {
         const f = floaters[i];
@@ -311,6 +437,21 @@ function makeRequestsScene(): SceneDef {
     const g = parseInt(m[2], 16);
     const b = parseInt(m[3], 16);
     return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
   }
 }
 
