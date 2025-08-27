@@ -52,7 +52,7 @@ type Floater = {
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
-function rand(min: number, max: number) { return min + Math.random() * (max - min) ; }
+function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 
 function normalizePayload(raw: any): { base: SongRequestPayload; trackRef?: string } {
   const base: SongRequestPayload = { ...raw };
@@ -95,6 +95,7 @@ async function fromSpotifyOEmbed(trackId: string): Promise<{ title?: string; thu
 function makeRequestsScene(): SceneDef {
   const floaters: Floater[] = [];
   const byId = new Map<string, Floater>();
+  const pending: any[] = []; // queue requests until draw has a director
   let lastSizeW = 0, lastSizeH = 0;
   let beatPulse = 0;
 
@@ -126,15 +127,16 @@ function makeRequestsScene(): SceneDef {
     const song = songs[(Math.random()*songs.length)|0];
     const pfp = 'https://i.pravatar.cc/128?img=' + (((Math.random()*70)|0)+1);
     const alb = 'https://picsum.photos/seed/' + ((Math.random()*100000)|0) + '/256';
-    emitSongRequest({ userName: name, songTitle: song, pfpUrl: pfp, albumArtUrl: alb, color: sampleColor() });
+    enqueueRequest({ userName: name, songTitle: song, pfpUrl: pfp, albumArtUrl: alb, color: sampleColor() });
   }
   function sampleColor() {
     const arr = ['#22cc88','#cc2288','#22aacc','#ffaa22','#8a2be2','#00d4ff'];
     return arr[(Math.random()*arr.length)|0];
   }
 
-  function getDir(dMaybe: VisualDirector | undefined): VisualDirector | undefined {
-    return dMaybe || (window as any).__director;
+  function enqueueRequest(rawReq: any) {
+    pending.push(rawReq);
+    if (DEBUG) console.log('[Requests Floaters] queued', rawReq);
   }
 
   async function addRequest(rawReq: any, director: VisualDirector) {
@@ -147,8 +149,8 @@ function makeRequestsScene(): SceneDef {
       return;
     }
 
-    const W = director.getCanvas().width;
-    const H = director.getCanvas().height;
+    const W = director.getCanvas().width || 1280;
+    const H = director.getCanvas().height || 720;
 
     const flo: Floater = {
       id,
@@ -174,6 +176,7 @@ function makeRequestsScene(): SceneDef {
       awaitingMeta: false,
     };
 
+    // Load images via proxy (if configured) and safe loader
     if (base.pfpUrl) {
       const url = getProxiedUrl(base.pfpUrl);
       loadImageSafe(url).then(img => { if (img) flo.pfp = img; }).catch(() => {});
@@ -183,6 +186,7 @@ function makeRequestsScene(): SceneDef {
       loadImageSafe(url).then(img => { if (img) flo.album = img; }).catch(() => {});
     }
 
+    // Resolve missing title/cover via Spotify oEmbed if we have a track ID/URI/URL
     const tid = parseSpotifyTrackId(trackRef || base.uri || '');
     if ((!base.songTitle || !base.albumArtUrl) && tid) {
       flo.awaitingMeta = true;
@@ -210,16 +214,16 @@ function makeRequestsScene(): SceneDef {
 
     floaters.push(flo);
     byId.set(id, flo);
+    if (DEBUG) console.log('[Requests Floaters] added floater', { id, name: flo.name, song: flo.song });
   }
 
-  const onSongReq = (ev: Event, directorMaybe?: VisualDirector) => {
+  const onSongReq = (ev: Event) => {
     try {
       const ce = ev as CustomEvent<any>;
       const payload = ce.detail ?? null;
       if (DEBUG) console.log('[Requests Floaters] event', ev.type, payload);
-      const dir = getDir(directorMaybe);
-      if (!payload || !dir) return;
-      addRequest(payload, dir);
+      if (!payload) return;
+      enqueueRequest(payload);
     } catch (e) {
       if (DEBUG) console.warn('[Requests Floaters] onSongReq error', e);
     }
@@ -246,7 +250,7 @@ function makeRequestsScene(): SceneDef {
         (window as any).__songReqHooked = true;
         ensureGlobalEmitter();
         const events = ['songrequest','tiktok:songrequest','song-request','songQueued','queue:add','queue:add:request'];
-        for (const ev of events) window.addEventListener(ev, (e) => onSongReq(e, director) as any);
+        for (const ev of events) window.addEventListener(ev, onSongReq as any);
         ensureKeys(director);
 
         // Optional auto-demo via URL or localStorage
@@ -259,6 +263,12 @@ function makeRequestsScene(): SceneDef {
             if (!demoTimer) demoTimer = setInterval(() => spawnSampleOnce(), 2800);
           }
         } catch {}
+      }
+
+      // Drain any queued events now that we have a director and canvas
+      while (pending.length) {
+        const p = pending.shift();
+        addRequest(p, director);
       }
 
       if (w !== lastSizeW || h !== lastSizeH) {
