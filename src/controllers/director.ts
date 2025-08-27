@@ -277,8 +277,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     window.addEventListener('resize', onResize);
     onResize();
 
-    // Autowire panel buttons + keyboard shortcuts
-    private autowirePanelButtons() {
+    // autowirePanelButtons() method with this version
+private autowirePanelButtons() {
   const tryWire = (which: 'quality' | 'access') => {
     if (which === 'quality' && this.wiredQualityBtn) return;
     if (which === 'access' && this.wiredAccessBtn) return;
@@ -309,14 +309,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     const handler = (ev: Event) => {
       ev.preventDefault();
-      // Prevent any other click listeners on the same element from also firing (double-toggle)
-      if (typeof (ev as any).stopImmediatePropagation === 'function') {
-        (ev as any).stopImmediatePropagation();
-      }
+      // Prevent any other click listeners on this element from also firing (avoids double-toggle)
+      (ev as any).stopImmediatePropagation?.();
       ev.stopPropagation();
       if (which === 'quality') this.toggleQualityPanel();
       else this.toggleAccessibilityPanel();
     };
+
     el.addEventListener('click', handler);
     el.addEventListener('keydown', (ev: KeyboardEvent) => {
       if (ev.key === 'Enter' || ev.key === ' ') handler(ev);
