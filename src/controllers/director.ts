@@ -277,82 +277,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     window.addEventListener('resize', onResize);
     onResize();
 
-    // autowirePanelButtons() method with this version
-private autowirePanelButtons() {
-  const tryWire = (which: 'quality' | 'access') => {
-    if (which === 'quality' && this.wiredQualityBtn) return;
-    if (which === 'access' && this.wiredAccessBtn) return;
-
-    const selectors = which === 'quality'
-      ? [
-          '[data-action="quality"]',
-          '[data-panel="quality"]',
-          '#quality', '#btn-quality', '#open-quality',
-          '.quality-button', '.btn-quality'
-        ]
-      : [
-          '[data-action="accessibility"]',
-          '[data-action="access"]',
-          '[data-panel="accessibility"]',
-          '[data-panel="access"]',
-          '#accessibility', '#access', '#btn-accessibility', '#btn-access',
-          '#open-accessibility', '#open-access',
-          '.accessibility-button', '.btn-accessibility', '.btn-access'
-        ];
-
-    let el: HTMLElement | null = null;
-    for (const sel of selectors) {
-      el = document.querySelector(sel) as HTMLElement | null;
-      if (el) break;
-    }
-    if (!el) return;
-
-    const handler = (ev: Event) => {
-      ev.preventDefault();
-      // Prevent any other click listeners on this element from also firing (avoids double-toggle)
-      (ev as any).stopImmediatePropagation?.();
-      ev.stopPropagation();
-      if (which === 'quality') this.toggleQualityPanel();
-      else this.toggleAccessibilityPanel();
-    };
-
-    el.addEventListener('click', handler);
-    el.addEventListener('keydown', (ev: KeyboardEvent) => {
-      if (ev.key === 'Enter' || ev.key === ' ') handler(ev);
-    });
-
-    if (which === 'quality') this.wiredQualityBtn = true;
-    else this.wiredAccessBtn = true;
-  };
-
-  tryWire('quality');
-  tryWire('access');
-
-  if (this.wiredQualityBtn && this.wiredAccessBtn) {
-    if (this.controlsObserver) { this.controlsObserver.disconnect(); this.controlsObserver = undefined; }
-    return;
+    // Wire panel buttons (with MutationObserver inside)
+    this.autowirePanelButtons();
   }
-
-  if (!this.controlsObserver) {
-    this.controlsObserver = new MutationObserver(() => {
-      tryWire('quality');
-      tryWire('access');
-      if (this.wiredQualityBtn && this.wiredAccessBtn && this.controlsObserver) {
-        this.controlsObserver.disconnect();
-        this.controlsObserver = undefined;
-      }
-    });
-    if (document.body) {
-      this.controlsObserver.observe(document.body, { childList: true, subtree: true });
-    } else {
-      document.addEventListener('DOMContentLoaded', () => {
-        if (document.body && this.controlsObserver) {
-          this.controlsObserver.observe(document.body, { childList: true, subtree: true });
-        }
-      });
-    }
-  }
-}
 
   // Public API
   getCanvas(): HTMLCanvasElement { return this.canvas; }
@@ -1427,10 +1354,10 @@ private autowirePanelButtons() {
           s.alpha = 0.95;
         }
 
+        const hw = spriteSize / 2;
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(s.angle);
-        const hw = spriteSize / 2;
         ctx.globalAlpha = 0.85;
         ctx.drawImage(this.albumImg, -hw, -hw, spriteSize, spriteSize);
         ctx.globalAlpha = 1;
@@ -2477,6 +2404,9 @@ private autowirePanelButtons() {
 
       const handler = (ev: Event) => {
         ev.preventDefault();
+        // Prevent any other click listeners on this element from also firing (avoids double-toggle)
+        (ev as any).stopImmediatePropagation?.();
+        ev.stopPropagation();
         if (which === 'quality') this.toggleQualityPanel();
         else this.toggleAccessibilityPanel();
       };
