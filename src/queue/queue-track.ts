@@ -1,10 +1,23 @@
+// Example usage to replace your direct POST call.
+// Call this from your chat command handler when you get a track to queue.
 import { queueTrackAndEmit } from '../integrations/song-requests-bridge';
 
-// Somewhere after parsing the chat command:
-await queueTrackAndEmit({
-  accessToken: yourAccessToken,                 // from your auth flow
-  viewer: { displayName: chatUserName, avatarUrl: chatUserAvatar, color: '#22cc88' },
-  trackUriOrUrlOrId: 'spotify:track:5yuShbu70mtHXY0yLzCQLQ',
-  trackMeta: { title: 'Artist — Track', albumArtUrl: 'https://i.scdn.co/...' },
-  // deviceId: optionalDeviceId
-});
+export async function queueTrackExample(params: {
+  accessToken: string;
+  viewerName: string;
+  viewerAvatar?: string;
+  color?: string;
+  trackRef: string; // spotify:track:... | open.spotify.com/track/... | id
+  trackTitle?: string;
+  trackAlbumArt?: string;
+  deviceId?: string;
+}) {
+  const { accessToken, viewerName, viewerAvatar, color, trackRef, trackTitle, trackAlbumArt, deviceId } = params;
+  await queueTrackAndEmit({
+    accessToken,
+    viewer: { displayName: viewerName, avatarUrl: viewerAvatar, color },
+    trackUriOrUrlOrId: trackRef,
+    trackMeta: { title: trackTitle, albumArtUrl: trackAlbumArt },
+    deviceId,
+  });
+}

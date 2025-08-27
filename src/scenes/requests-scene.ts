@@ -1,4 +1,9 @@
-// Updated to use loadImageSafe + optional proxy, and with event debug logging.
+// Requests Floaters scene: spawns a floating card for each song request.
+// - Listens for CustomEvent 'songrequest' (and a few aliases).
+// - Uses safe image loader + optional proxy to avoid CORS issues.
+// - Press D to auto-demo, R to spawn a single test floater.
+// - Toggle debug logs: localStorage.setItem('songreq-debug','1'); reload.
+
 import { VisualDirector, type SceneDef } from '../controllers/director';
 import { loadImageSafe } from '../utils/safe-image';
 import { getProxiedUrl } from '../utils/img-proxy';
@@ -177,7 +182,7 @@ function makeRequestsScene(): SceneDef {
     }
 
     // Resolve missing title/cover via Spotify oEmbed if we have a track ID/URI/URL
-    const tid = parseSpotifyTrackId(trackRef || '');
+    const tid = parseSpotifyTrackId(trackRef || base.uri || '');
     if ((!base.songTitle || !base.albumArtUrl) && tid) {
       flo.awaitingMeta = true;
       fromSpotifyOEmbed(tid).then(async (meta) => {
@@ -233,7 +238,7 @@ function makeRequestsScene(): SceneDef {
 
   const scene: SceneDef = {
     name: 'Requests Floaters',
-    draw(ctx, w, h, time, dt, director) {
+    draw(ctx, w, h, _time, dt, director) {
       // One-time setup
       if (!(window as any).__songReqHooked) {
         (window as any).__songReqHooked = true;
@@ -451,7 +456,7 @@ function makeRequestsScene(): SceneDef {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
     if (!m) return `rgba(34,204,136,${a})`;
     const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
-    return `rgba(${r},${g},${b},${a})`;
+    return `rgba(${r},${b},${g},${a})`.replace(`${b},${g}`, `${g},${b}`); // keep order r,g,b
   }
   function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     const rr = Math.min(r, w / 2, h / 2);

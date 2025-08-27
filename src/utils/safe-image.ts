@@ -1,27 +1,25 @@
-// CORS-resilient image loader:
-// 1) Try loading with crossOrigin="anonymous" (keeps canvas untainted if server allows CORS).
-// 2) If it fails, retry without crossOrigin (taints canvas, but drawImage still works).
-// We don't read pixels in Requests Floaters, so tainting is acceptable.
-export async function loadImageSafe(url: string): Promise<HTMLImageElement | null> {
-  if (!url || typeof url !== 'string') return null;
+// CORS-resilient image loader (quiet):
+// - Try WITHOUT crossOrigin first (avoids console CORS errors on strict hosts)
+// - If that fails, retry WITH crossOrigin="anonymous"
+// We don't read pixels in Requests Floaters, so a tainted canvas is fine.
+export function loadImageSafe(url: string): Promise<HTMLImageElement | null> {
+  if (!url || typeof url !== 'string') return Promise.resolve(null);
 
   const attempt = (src: string, useCors: boolean) =>
     new Promise<HTMLImageElement | null>((resolve) => {
       const img = new Image();
       try { img.decoding = 'async'; } catch {}
       try { img.loading = 'eager'; } catch {}
-      if (useCors) img.crossOrigin = 'anonymous';
       img.referrerPolicy = 'no-referrer';
+      if (useCors) img.crossOrigin = 'anonymous';
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
       img.src = src;
     });
 
-  // Try with CORS first
-  const a = await attempt(url, true);
-  if (a) return a;
-
-  // Retry without CORS
-  const b = await attempt(url, false);
-  return b;
+  // Try without crossOrigin first, then retry with it
+  return attempt(url, false).then((a) => a || attempt(url, true));
 }
+
+// Also export default so either import style works
+export default loadImageSafe;
