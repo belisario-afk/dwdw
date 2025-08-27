@@ -430,11 +430,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('access', undefined);
   }
 
-  // VJ: Flow Field controls
+  // VJ: Flow Field controls (single, unified panel)
   toggleVJPanel() {
-    // Remove any stray/legacy VJ nodes before using the unified panel system
-    this.removeLegacyVJPanels();
-
     const s = this.flowSettings;
     this.mountPanel('vj', 'VJ — Flow Field', (panel) => {
       const hasAlbum = !!this.albumImg;
@@ -2238,7 +2235,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('vj', false);
   }
 
-  // Click-only wiring for panel buttons present in index.html (guarded)
+  // Click-only wiring for panel buttons present in index.html (guarded, single source)
   private autowirePanelButtons() {
     const wireBtn = (sel: string, handler: () => void, flag: string) => {
       const el = document.querySelector<HTMLElement>(sel);
@@ -2258,22 +2255,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.controlsObserver?.disconnect();
       this.controlsObserver = new MutationObserver(() => wireAll());
       this.controlsObserver.observe(document.body, { childList: true, subtree: true });
-    } catch {}
-  }
-
-  // Remove any legacy/duplicate VJ DOM panels created outside this.panel system
-  private removeLegacyVJPanels() {
-    try {
-      const root = document.getElementById('panels') || document.body;
-      const suspects = root.querySelectorAll(
-        [
-          '.vj-panel',
-          '#vj-panel',
-          '.panel[data-id="vj-legacy"]',
-          '.panel.vj-only',
-        ].join(',')
-      );
-      suspects.forEach((n) => n.parentElement?.removeChild(n));
     } catch {}
   }
 
