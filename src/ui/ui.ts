@@ -199,8 +199,8 @@ export class UI {
     if (this.els.crossfade) this.els.crossfade.onclick = () => this.director.crossfadeNow();
     if (this.els.record) this.els.record.onclick = () => this.toggleRecord();
     if (this.els.vj) this.els.vj.onclick = () => this.vj.togglePanel();
-    if (this.els.quality) this.els.quality.onclick = () => this.director.toggleQualityPanel();
-    if (this.els.acc) this.els.acc.onclick = () => this.director.toggleAccessibilityPanel();
+    // Removed duplicate handlers for Quality and Accessibility.
+    // Director auto-wires these buttons and handles keyboard shortcuts.
 
     // FPS label from director
     this.director.on('fps', (fps) => {

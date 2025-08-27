@@ -278,25 +278,82 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     onResize();
 
     // Autowire panel buttons + keyboard shortcuts
-    this.autowirePanelButtons();
-    document.addEventListener('DOMContentLoaded', () => this.autowirePanelButtons());
-    setTimeout(() => this.autowirePanelButtons(), 0);
-    window.addEventListener('keydown', (e) => {
-      const t = e.target as HTMLElement | null;
-      const tag = (t?.tagName || '').toLowerCase();
-      const typing = tag === 'input' || tag === 'textarea' || (t as any)?.isContentEditable;
-      if (typing) return;
+    private autowirePanelButtons() {
+  const tryWire = (which: 'quality' | 'access') => {
+    if (which === 'quality' && this.wiredQualityBtn) return;
+    if (which === 'access' && this.wiredAccessBtn) return;
 
-      const k = e.key?.toLowerCase?.() || '';
-      if (k === 'q') { e.preventDefault(); this.toggleQualityPanel(); }
-      if (k === 'a') { e.preventDefault(); this.toggleAccessibilityPanel(); }
-      if (e.key === 'Escape') { this.closeAllPanels(); }
+    const selectors = which === 'quality'
+      ? [
+          '[data-action="quality"]',
+          '[data-panel="quality"]',
+          '#quality', '#btn-quality', '#open-quality',
+          '.quality-button', '.btn-quality'
+        ]
+      : [
+          '[data-action="accessibility"]',
+          '[data-action="access"]',
+          '[data-panel="accessibility"]',
+          '[data-panel="access"]',
+          '#accessibility', '#access', '#btn-accessibility', '#btn-access',
+          '#open-accessibility', '#open-access',
+          '.accessibility-button', '.btn-accessibility', '.btn-access'
+        ];
+
+    let el: HTMLElement | null = null;
+    for (const sel of selectors) {
+      el = document.querySelector(sel) as HTMLElement | null;
+      if (el) break;
+    }
+    if (!el) return;
+
+    const handler = (ev: Event) => {
+      ev.preventDefault();
+      // Prevent any other click listeners on the same element from also firing (double-toggle)
+      if (typeof (ev as any).stopImmediatePropagation === 'function') {
+        (ev as any).stopImmediatePropagation();
+      }
+      ev.stopPropagation();
+      if (which === 'quality') this.toggleQualityPanel();
+      else this.toggleAccessibilityPanel();
+    };
+    el.addEventListener('click', handler);
+    el.addEventListener('keydown', (ev: KeyboardEvent) => {
+      if (ev.key === 'Enter' || ev.key === ' ') handler(ev);
     });
 
-    this.recomputeBeatSchedule();
-    this.startPlaybackPolling();
-    this.start();
+    if (which === 'quality') this.wiredQualityBtn = true;
+    else this.wiredAccessBtn = true;
+  };
+
+  tryWire('quality');
+  tryWire('access');
+
+  if (this.wiredQualityBtn && this.wiredAccessBtn) {
+    if (this.controlsObserver) { this.controlsObserver.disconnect(); this.controlsObserver = undefined; }
+    return;
   }
+
+  if (!this.controlsObserver) {
+    this.controlsObserver = new MutationObserver(() => {
+      tryWire('quality');
+      tryWire('access');
+      if (this.wiredQualityBtn && this.wiredAccessBtn && this.controlsObserver) {
+        this.controlsObserver.disconnect();
+        this.controlsObserver = undefined;
+      }
+    });
+    if (document.body) {
+      this.controlsObserver.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        if (document.body && this.controlsObserver) {
+          this.controlsObserver.observe(document.body, { childList: true, subtree: true });
+        }
+      });
+    }
+  }
+}
 
   // Public API
   getCanvas(): HTMLCanvasElement { return this.canvas; }
