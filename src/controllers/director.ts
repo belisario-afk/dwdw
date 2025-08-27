@@ -243,7 +243,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     window.addEventListener('resize', onResize);
     onResize();
 
-    // Wire panel buttons (click-only)
+    // Wire panel buttons (click-only) from inside the class (single source of truth)
     this.autowirePanelButtons();
 
     // Expose for console debugging
@@ -432,6 +432,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // VJ: Flow Field controls
   toggleVJPanel() {
+    // Remove any stray/legacy VJ nodes before using the unified panel system
+    this.removeLegacyVJPanels();
+
     const s = this.flowSettings;
     this.mountPanel('vj', 'VJ — Flow Field', (panel) => {
       const hasAlbum = !!this.albumImg;
@@ -2051,140 +2054,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
-  // Voronoi core
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
-
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
-
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
-
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
-
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (poly.length === 0) break;
-      }
-
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-
-        let radius = 0;
-        for (const p of poly) {
-          const d = Math.hypot(p.x - cx, p.y - cy);
-          if (d > radius) radius = d;
-        }
-
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
-    }
-
-    return cells;
-  }
-
-  // Lyrics fetching
-  private async refetchLyricsForCurrentTrack() {
-    if (!this.lastTrackId) return;
-    try {
-      const pb = await (this.api as any).getCurrentPlaybackCached?.().catch(() => null);
-      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
-      if (tr) return this.fetchLyricsLRCLIB(tr);
-    } catch {}
-  }
-  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
-    try {
-      const trackName = track.name || '';
-      const artistName = (track.artists || []).map(a => a.name).join(', ');
-      const albumName = track.album?.name || '';
-      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
-
-      const params = new URLSearchParams();
-      if (trackName) params.set('track_name', trackName);
-      if (artistName) params.set('artist_name', artistName);
-      if (albumName) params.set('album_name', albumName);
-      if (durationSec) params.set('duration', String(durationSec));
-
-      const url = `https://lrclib.net/api/search?${params.toString()}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
-      const data = await res.json();
-
-      let synced = '';
-      let plain = '';
-      if (Array.isArray(data) && data.length) {
-        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
-        synced = best?.syncedLyrics || '';
-        plain = best?.plainLyrics || '';
-      }
-
-      let state: LyricsState | null = null;
-      if (synced && typeof synced === 'string') {
-        const lines = parseLRC(synced);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
-      } else if (plain && typeof plain === 'string') {
-        const lines = parsePlainLyrics(plain, durationSec);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
-      }
-
-      this.lyrics = state;
-      this.currentLyricIndex = -1;
-    } catch {
-      this.lyrics = null;
-      this.currentLyricIndex = -1;
-    }
-  }
-  private updateCurrentLyricLine() {
-    if (!this.lyrics || !this.lyrics.lines.length) return;
-    const t = this.playbackMs / 1000;
-    const lines = this.lyrics.lines;
-
-    let lo = 0, hi = lines.length - 1, idx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
-    }
-
-    if (idx !== -1 && idx !== this.currentLyricIndex) {
-      this.currentLyricIndex = idx;
-      const text = lines[idx].text || '';
-      if (text.trim()) this.setLyricText(text);
-    }
-  }
-  private startPlaybackPolling() {
-    const tick = async () => {
-      try {
-        const pb = await (this.api as any).getCurrentPlaybackCached?.();
-        if (pb) {
-          this.hadPlaybackPoll = true;
-          this.playbackIsPlaying = !!pb.is_playing;
-          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-
-          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
-          if (tr && tr.id && tr.id !== this.lastTrackId) {
-            this.onTrack(tr).catch(() => {});
-          }
-
-          const drift = Math.abs(ms - this.playbackMs);
-          if (drift > 750) this.playbackMs = ms;
-        }
-      } catch {}
-    };
-    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
-    this.pbPollTimer = setInterval(tick, 1000);
-    tick().catch(() => {});
-  }
-
   // Lyrics overlay
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
@@ -2369,26 +2238,87 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('vj', false);
   }
 
-  // Click-only wiring for panel buttons present in index.html
+  // Click-only wiring for panel buttons present in index.html (guarded)
   private autowirePanelButtons() {
-    const wire = () => {
-      const btnQ = document.querySelector<HTMLElement>('#btn-quality');
-      const btnA = document.querySelector<HTMLElement>('#btn-accessibility');
-      const btnV = document.querySelector<HTMLElement>('#btn-vj');
-
-      if (btnQ) btnQ.addEventListener('click', (e) => { e.preventDefault(); this.toggleQualityPanel(); });
-      if (btnA) btnA.addEventListener('click', (e) => { e.preventDefault(); this.toggleAccessibilityPanel(); });
-      if (btnV) btnV.addEventListener('click', (e) => { e.preventDefault(); this.toggleVJPanel(); });
+    const wireBtn = (sel: string, handler: () => void, flag: string) => {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (!el) return;
+      if ((el as any).__wiredFlag === flag) return; // already wired
+      el.addEventListener('click', (e) => { e.preventDefault(); handler(); });
+      (el as any).__wiredFlag = flag;
     };
-
-    // Try immediately
-    wire();
-
-    // Watch DOM for UI that mounts later
+    const wireAll = () => {
+      wireBtn('#btn-quality', () => this.toggleQualityPanel(), 'quality');
+      wireBtn('#btn-accessibility', () => this.toggleAccessibilityPanel(), 'access');
+      wireBtn('#btn-vj', () => this.toggleVJPanel(), 'vj');
+      wireBtn('#btn-crossfade', () => this.crossfadeNow(), 'crossfade');
+    };
+    wireAll();
     try {
-      this.controlsObserver = new MutationObserver(() => wire());
+      this.controlsObserver?.disconnect();
+      this.controlsObserver = new MutationObserver(() => wireAll());
       this.controlsObserver.observe(document.body, { childList: true, subtree: true });
     } catch {}
+  }
+
+  // Remove any legacy/duplicate VJ DOM panels created outside this.panel system
+  private removeLegacyVJPanels() {
+    try {
+      const root = document.getElementById('panels') || document.body;
+      const suspects = root.querySelectorAll(
+        [
+          '.vj-panel',
+          '#vj-panel',
+          '.panel[data-id="vj-legacy"]',
+          '.panel.vj-only',
+        ].join(',')
+      );
+      suspects.forEach((n) => n.parentElement?.removeChild(n));
+    } catch {}
+  }
+
+  // Lyrics timeline updates
+  private updateCurrentLyricLine() {
+    if (!this.lyrics || !this.lyrics.lines.length) return;
+    const t = this.playbackMs / 1000;
+    const lines = this.lyrics.lines;
+
+    let lo = 0, hi = lines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < lines[mid].start) hi = mid - 1;
+      else if (t >= lines[mid].end) lo = mid + 1;
+      else { idx = mid; break; }
+    }
+
+    if (idx !== -1 && idx !== this.currentLyricIndex) {
+      this.currentLyricIndex = idx;
+      const text = lines[idx].text || '';
+      if (text.trim()) this.setLyricText(text);
+    }
+  }
+  private startPlaybackPolling() {
+    const tick = async () => {
+      try {
+        const pb = await (this.api as any).getCurrentPlaybackCached?.();
+        if (pb) {
+          this.hadPlaybackPoll = true;
+          this.playbackIsPlaying = !!pb.is_playing;
+          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
+
+          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
+          if (tr && tr.id && tr.id !== this.lastTrackId) {
+            this.onTrack(tr).catch(() => {});
+          }
+
+          const drift = Math.abs(ms - this.playbackMs);
+          if (drift > 750) this.playbackMs = ms;
+        }
+      } catch {}
+    };
+    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
+    this.pbPollTimer = setInterval(tick, 1000);
+    tick().catch(() => {});
   }
 
   // Utilities
@@ -2513,7 +2443,6 @@ function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
     colors: a.colors.map((c, i) => mixHex(c, b.colors[i % b.colors.length])),
   };
 }
-
 function tintRgbTowardHue(c: RGB, hue: number, amt: number): RGB {
   const hsl = rgbToHsl(c);
   const mixed = hslToRgb(hue, Math.min(1, hsl.s + amt * 0.5), Math.min(1, hsl.l + amt * 0.1));
@@ -2545,7 +2474,6 @@ function parseLRC(lrc: string): LyricLine[] {
   }
   return lines;
 }
-
 function parsePlainLyrics(text: string, durationSec: number): LyricLine[] {
   const rows = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (!rows.length) return [];
