@@ -14,6 +14,14 @@ type AudioFeaturesLite = {
   tempo?: number; energy?: number; danceability?: number; valence?: number; key?: number; mode?: number;
 };
 
+// Public scene interface to allow external scene modules
+export type SceneDef = {
+  name: string;
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, director: VisualDirector) => void;
+  onBeat?: (director: VisualDirector) => void;
+  onDownbeat?: (director: VisualDirector) => void;
+};
+
 // Flow field
 type FlowP = { x: number; y: number; px: number; py: number; vx: number; vy: number; life: number; ttl: number; hue: number; size: number; alpha: number; };
 type FlowSprite = { x: number; y: number; vx: number; vy: number; angle: number; life: number; ttl: number; scale: number; alpha: number; };
@@ -67,6 +75,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private nextSceneName: string | null = null;
 
   private sceneName: string = 'Auto';
+
+  // External scenes registry
+  private externalScenes = new Map<string, SceneDef>();
 
   // Palettes
   private basePalette: UIPalette = {
@@ -178,6 +189,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   constructor(private api: SpotifyAPI) {
     super();
+
     // Canvas
     this.canvas = document.createElement('canvas');
     this.canvas.style.display = 'block';
@@ -244,8 +256,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.startPlaybackPolling();
   }
 
-  // Public API
+  // Public API: Canvas
   getCanvas(): HTMLCanvasElement { return this.canvas; }
+
+  // Public API: Scene registration for external modules
+  registerScene(def: SceneDef) { if (def?.name && typeof def.draw === 'function') this.externalScenes.set(def.name, def); }
+  unregisterScene(name: string) { this.externalScenes.delete(name); }
+  listExternalSceneNames(): string[] { return Array.from(this.externalScenes.keys()); }
+  hasScene(name: string): boolean { return this.externalScenes.has(name); }
 
   setPalette(p: UIPalette) {
     this.basePalette = { ...p, colors: [...p.colors] };
@@ -283,23 +301,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  async setEmoHeroImage(url: string | null) {
-    if (!url) { this.emoHeroImg = null; return; }
-    try {
-      this.emoHeroImg = await loadImage(url);
-      if (!this.emoBgImg) this.emoBgImg = this.emoHeroImg;
-    } catch {
-      this.emoHeroImg = null;
-    }
-  }
-  async setEmoBackgroundImage(url: string | null) {
-    if (!url) { this.emoBgImg = null; return; }
-    try {
-      this.emoBgImg = await loadImage(url);
-    } catch {
-      this.emoBgImg = null;
-    }
-  }
+  async setEmoHeroImage(url: string | null) { if (!url) { this.emoHeroImg = null; return; } try { this.emoHeroImg = await loadImage(url); if (!this.emoBgImg) this.emoBgImg = this.emoHeroImg; } catch { this.emoHeroImg = null; } }
+  async setEmoBackgroundImage(url: string | null) { if (!url) { this.emoBgImg = null; return; } try { this.emoBgImg = await loadImage(url); } catch { this.emoBgImg = null; } }
 
   // Map UI-provided scene values to canonical names used internally
   private canonicalizeScene(name: string | null | undefined): string {
@@ -327,6 +330,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       return 'Auto';
     }
 
+    // Otherwise, return raw (allows external scene names)
     return raw || 'Auto';
   }
 
@@ -823,12 +827,18 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const next = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
       const is = (n: string) => cur === n || next === n;
 
+      // Built-in scenes
       if (is('Beat Ball')) this.onBeat_Ball();
       if (is('Lyric Lines')) this.onBeat_LyricLines();
       if (is('Flow Field')) this.onBeat_FlowField();
       if (is('Neon Bars')) this.onBeat_NeonBars();
       if (is('Stained Glass Voronoi')) this.onBeat_Stained();
       if (is('Emo Slashes')) this.onBeat_EmoSlashes();
+
+      // External scene hook
+      const active = next || cur;
+      const ext = active ? this.externalScenes.get(active) : undefined;
+      if (ext?.onBeat) { try { ext.onBeat(this); } catch (e) { console.warn('Scene onBeat failed', active, e); } }
 
       if (this.beatCount % this.downbeatEvery === 1) {
         this.onDownbeat();
@@ -854,9 +864,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const next = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
     const is = (n: string) => cur === n || next === n;
 
+    // Built-in scenes
     if (is('Neon Bars')) this.onDownbeat_NeonBars();
     if (is('Stained Glass Voronoi')) this.onDownbeat_Stained();
     if (is('Emo Slashes')) this.onDownbeat_EmoSlashes();
+
+    // External scene hook
+    const active = next || cur;
+    const ext = active ? this.externalScenes.get(active) : undefined;
+    if (ext?.onDownbeat) { try { ext.onDownbeat(this); } catch (e) { console.warn('Scene onDownbeat failed', active, e); } }
 
     if (this.autoSceneOnDownbeat && cur === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
       const choices = ['Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars', 'Stained Glass Voronoi', 'Emo Slashes'];
@@ -865,8 +881,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // Scene switch
+  // Scene switch (external scenes first)
   private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
+    const ext = this.externalScenes.get(name);
+    if (ext) {
+      ext.draw(ctx, w, h, time, dt, this);
+      return;
+    }
     switch (name) {
       case 'Lyric Lines': this.drawLyricLines(ctx, w, h, time, dt); break;
       case 'Beat Ball': this.drawBeatBall(ctx, w, h, time, dt); break;
@@ -878,6 +899,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       default: this.drawAuto(ctx, w, h, time, dt); break;
     }
   }
+
+  // =======================
+  // Built-in scenes + utils
+  // =======================
 
   private drawAuto(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, _dt: number) {
     const energy = this.features.energy ?? 0.5;
@@ -1429,9 +1454,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const angle = Math.atan2(ny, nx);
 
     const t = time * 0.2;
-    theSwirl: {
-      // slight variation to avoid aliasing
-    }
     const twist = Math.sin(angle * 3 + t) * 0.5 + Math.cos(r * 6 - t) * 0.5;
     const dir = angle + Math.PI / 2 + twist * 0.5;
 
@@ -2029,6 +2051,140 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.globalAlpha = 1;
   }
 
+  // Voronoi core
+  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
+    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+    const cells: SGCell[] = [];
+
+    for (let i = 0; i < sites.length; i++) {
+      const si = sites[i];
+      let poly = B.slice();
+
+      for (let j = 0; j < sites.length; j++) {
+        if (i === j) continue;
+        const sj = sites[j];
+
+        const mx = (si.x + sj.x) / 2;
+        const my = (si.y + sj.y) / 2;
+        const sx = sj.x - si.x;
+        const sy = sj.y - si.y;
+
+        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        if (poly.length === 0) break;
+      }
+
+      if (poly.length >= 3) {
+        let cx = 0, cy = 0;
+        for (const p of poly) { cx += p.x; cy += p.y; }
+        cx /= poly.length; cy /= poly.length;
+
+        let radius = 0;
+        for (const p of poly) {
+          const d = Math.hypot(p.x - cx, p.y - cy);
+          if (d > radius) radius = d;
+        }
+
+        cells.push({ pts: poly, cx, cy, color: si.color, radius });
+      }
+    }
+
+    return cells;
+  }
+
+  // Lyrics fetching
+  private async refetchLyricsForCurrentTrack() {
+    if (!this.lastTrackId) return;
+    try {
+      const pb = await (this.api as any).getCurrentPlaybackCached?.().catch(() => null);
+      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
+      if (tr) return this.fetchLyricsLRCLIB(tr);
+    } catch {}
+  }
+  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
+    try {
+      const trackName = track.name || '';
+      const artistName = (track.artists || []).map(a => a.name).join(', ');
+      const albumName = track.album?.name || '';
+      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
+
+      const params = new URLSearchParams();
+      if (trackName) params.set('track_name', trackName);
+      if (artistName) params.set('artist_name', artistName);
+      if (albumName) params.set('album_name', albumName);
+      if (durationSec) params.set('duration', String(durationSec));
+
+      const url = `https://lrclib.net/api/search?${params.toString()}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
+      const data = await res.json();
+
+      let synced = '';
+      let plain = '';
+      if (Array.isArray(data) && data.length) {
+        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
+        synced = best?.syncedLyrics || '';
+        plain = best?.plainLyrics || '';
+      }
+
+      let state: LyricsState | null = null;
+      if (synced && typeof synced === 'string') {
+        const lines = parseLRC(synced);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
+      } else if (plain && typeof plain === 'string') {
+        const lines = parsePlainLyrics(plain, durationSec);
+        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
+      }
+
+      this.lyrics = state;
+      this.currentLyricIndex = -1;
+    } catch {
+      this.lyrics = null;
+      this.currentLyricIndex = -1;
+    }
+  }
+  private updateCurrentLyricLine() {
+    if (!this.lyrics || !this.lyrics.lines.length) return;
+    const t = this.playbackMs / 1000;
+    const lines = this.lyrics.lines;
+
+    let lo = 0, hi = lines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < lines[mid].start) hi = mid - 1;
+      else if (t >= lines[mid].end) lo = mid + 1;
+      else { idx = mid; break; }
+    }
+
+    if (idx !== -1 && idx !== this.currentLyricIndex) {
+      this.currentLyricIndex = idx;
+      const text = lines[idx].text || '';
+      if (text.trim()) this.setLyricText(text);
+    }
+  }
+  private startPlaybackPolling() {
+    const tick = async () => {
+      try {
+        const pb = await (this.api as any).getCurrentPlaybackCached?.();
+        if (pb) {
+          this.hadPlaybackPoll = true;
+          this.playbackIsPlaying = !!pb.is_playing;
+          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
+
+          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
+          if (tr && tr.id && tr.id !== this.lastTrackId) {
+            this.onTrack(tr).catch(() => {});
+          }
+
+          const drift = Math.abs(ms - this.playbackMs);
+          if (drift > 750) this.playbackMs = ms;
+        }
+      } catch {}
+    };
+    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
+    this.pbPollTimer = setInterval(tick, 1000);
+    tick().catch(() => {});
+  }
+
   // Lyrics overlay
   private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.lyricsOverlayEnabled) return;
@@ -2235,50 +2391,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     } catch {}
   }
 
-  // Lyrics timeline updates
-  private updateCurrentLyricLine() {
-    if (!this.lyrics || !this.lyrics.lines.length) return;
-    const t = this.playbackMs / 1000;
-    const lines = this.lyrics.lines;
-
-    let lo = 0, hi = lines.length - 1, idx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
-    }
-
-    if (idx !== -1 && idx !== this.currentLyricIndex) {
-      this.currentLyricIndex = idx;
-      const text = lines[idx].text || '';
-      if (text.trim()) this.setLyricText(text);
-    }
-  }
-  private startPlaybackPolling() {
-    const tick = async () => {
-      try {
-        const pb = await (this.api as any).getCurrentPlaybackCached?.();
-        if (pb) {
-          this.hadPlaybackPoll = true;
-          this.playbackIsPlaying = !!pb.is_playing;
-          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-
-          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
-          if (tr && tr.id && tr.id !== this.lastTrackId) {
-            this.onTrack(tr).catch(() => {});
-          }
-
-          const drift = Math.abs(ms - this.playbackMs);
-          if (drift > 750) this.playbackMs = ms;
-        }
-      } catch {}
-    };
-    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
-    this.pbPollTimer = setInterval(tick, 1000);
-    tick().catch(() => {});
-  }
-
   // Utilities
   private mixColor(a: string, b: string, t: number) {
     const ca = hexToRgb(a)!, cb = hexToRgb(b)!;
@@ -2398,16 +2510,17 @@ function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
   return {
     dominant: mixHex(a.dominant, b.dominant),
     secondary: mixHex(a.secondary, b.secondary),
-    colors: a.colors.map((c, i) => mixHex(c, b.colors[i % b.colors.length]))
+    colors: a.colors.map((c, i) => mixHex(c, b.colors[i % b.colors.length])),
   };
 }
+
 function tintRgbTowardHue(c: RGB, hue: number, amt: number): RGB {
   const hsl = rgbToHsl(c);
   const mixed = hslToRgb(hue, Math.min(1, hsl.s + amt * 0.5), Math.min(1, hsl.l + amt * 0.1));
   return {
     r: Math.round(c.r + (mixed.r - c.r) * amt),
     g: Math.round(c.g + (mixed.g - c.g) * amt),
-    b: Math.round(c.b + (mixed.b - c.b) * amt)
+    b: Math.round(c.b + (mixed.b - c.b) * amt),
   };
 }
 
@@ -2432,8 +2545,9 @@ function parseLRC(lrc: string): LyricLine[] {
   }
   return lines;
 }
+
 function parsePlainLyrics(text: string, durationSec: number): LyricLine[] {
-  const rows = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const rows = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (!rows.length) return [];
   const per = Math.max(3, Math.floor(durationSec / rows.length));
   const out: LyricLine[] = [];
