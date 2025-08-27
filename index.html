@@ -8,7 +8,8 @@
     />
     <title>dwdw</title>
 
-    <link rel="stylesheet" href="./style.css">
+    <!-- Use a relative path so it works in production (GitHub Pages, etc.) -->
+    <link rel="stylesheet" href="./style.css" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
 
     <!-- Build marker for cache-busting verification -->
@@ -280,10 +281,11 @@
       }
     </style>
 
-    <!-- Vite entry: point at your source, not built outputs -->
+    <!-- Vite entry: in dev points to source; in prod Vite rewrites to built assets -->
     <script type="module" src="/src/main.ts"></script>
-    <!-- If you keep a global CSS file under src/, let Vite process it -->
+    <!-- IMPORTANT: remove this, it 404s in production
     <link rel="stylesheet" href="/src/style.css">
+    -->
   </head>
   <body>
     <div id="canvas-host" aria-hidden="true"></div>
@@ -392,5 +394,46 @@
       })();
     </script>
 
+    <!-- Ensure Scene selector drives the VisualDirector even if your main.ts doesn't wire it -->
+    <script>
+      (function () {
+        var wired = false;
+        function wire() {
+          if (wired) return;
+          var d = window.__director;
+          var sel = document.getElementById('scene-select');
+          if (!d || !sel) return;
+          wired = true;
+          sel.addEventListener('change', function (e) {
+            var val = e.target && e.target.value ? String(e.target.value) : 'Auto';
+            try {
+              console.log('[UI] Scene =>', val);
+              d.requestScene(val);
+            } catch (err) {
+              console.warn('Scene switch failed:', err);
+            }
+          });
+
+          // Optional: buttons for panels
+          var btnQ = document.getElementById('btn-quality');
+          if (btnQ && typeof d.toggleQualityPanel === 'function') {
+            btnQ.addEventListener('click', function (ev) { ev.preventDefault(); d.toggleQualityPanel(); });
+          }
+          var btnA = document.getElementById('btn-accessibility');
+          if (btnA && typeof d.toggleAccessibilityPanel === 'function') {
+            btnA.addEventListener('click', function (ev) { ev.preventDefault(); d.toggleAccessibilityPanel(); });
+          }
+          var btnX = document.getElementById('btn-crossfade');
+          if (btnX && typeof d.crossfadeNow === 'function') {
+            btnX.addEventListener('click', function (ev) { ev.preventDefault(); d.crossfadeNow(); });
+          }
+        }
+        wire();
+        var t = setInterval(function () {
+          if (window.__director) { wire(); clearInterval(t); }
+        }, 300);
+        window.addEventListener('load', wire);
+      })();
+    </script>
   </body>
 </html>

@@ -310,6 +310,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Wire panel buttons (with MutationObserver inside)
     this.autowirePanelButtons();
 
+    // Expose for console debugging
+    (window as any).__director = this;
+
     // Start the render loop
     this.start();
 
@@ -378,12 +381,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private canonicalizeScene(name: string | null | undefined): string {
     const raw = (name || '').trim();
     const n = raw.toLowerCase();
-    // Handle the four problem scenes with multiple aliases and lowercase ids
     if (n.includes('particle')) return 'Particles';
     if (n.includes('tunnel') || n.includes('wormhole') || n.includes('warp')) return 'Tunnel';
     if (n.includes('terrain') || n.includes('mountain') || n.includes('landscape')) return 'Terrain';
     if (n.includes('typograph') || n === 'type' || n.includes('title') || n.includes('text')) return 'Typography';
-    // Keep existing canonical names intact
     if (n === 'auto') return 'Auto';
     if (n.includes('lyric')) return 'Lyric Lines';
     if (n.includes('beat') && n.includes('ball')) return 'Beat Ball';
@@ -391,12 +392,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (n.includes('neon') && n.includes('bar')) return 'Neon Bars';
     if (n.includes('stained') || n.includes('voronoi')) return 'Stained Glass Voronoi';
     if (n.includes('emo') || n.includes('slash')) return 'Emo Slashes';
-    // Fallback to original label
     return raw || 'Auto';
   }
 
   requestScene(scene: string) {
     const name = this.canonicalizeScene(scene);
+    console.log('[Director] requestScene:', scene, '=>', name);
     if (name === this.sceneName && !this.nextSceneName) return;
     this.nextSceneName = name;
     this.crossfadeT = this.crossfadeDur;
@@ -617,6 +618,28 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     requestAnimationFrame(loop);
   }
 
+  private safeDraw(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    time: number,
+    dt: number,
+    sceneName: string
+  ) {
+    try {
+      const canonical = this.canonicalizeScene(sceneName);
+      this.drawScene(ctx, w, h, time, dt, canonical);
+    } catch (err) {
+      console.error('Scene draw failed:', sceneName, err);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#1a0a0a';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#ffb3b3';
+      ctx.font = '14px system-ui, sans-serif';
+      ctx.fillText(`Scene error: ${sceneName}`, 12, 22);
+    }
+  }
+
   private render(dt: number, time: number) {
     if (this.playbackIsPlaying || (!this.hadPlaybackPoll && this.lyrics)) {
       this.playbackMs += dt * 1000;
@@ -630,16 +653,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bw = this.bufferA.width;
     const bh = this.bufferA.height;
 
-    // Canonicalize before drawing to handle any mismatched labels from UI
     const curName = this.canonicalizeScene(this.sceneName);
     const nextName = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
 
     this.updateCurrentLyricLine();
 
-    this.drawScene(this.bufCtxA, bw, bh, time, dt, curName);
+    this.safeDraw(this.bufCtxA, bw, bh, time, dt, curName);
 
     if (this.crossfadeT > 0 && nextName) {
-      this.drawScene(this.bufCtxB, bw, bh, time, dt, nextName);
+      this.safeDraw(this.bufCtxB, bw, bh, time, dt, nextName);
       const t = 1 - this.crossfadeT / this.crossfadeDur;
       this.ctx.clearRect(0, 0, W, H);
       this.ctx.imageSmoothingEnabled = true;
@@ -678,7 +700,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       this.onBeat_Common();
 
-      // Use canonicalized comparisons to avoid label mismatch issues
       const cur = this.canonicalizeScene(this.sceneName);
       const next = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
       const is = (n: string) => cur === n || next === n;
@@ -690,11 +711,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       if (is('Stained Glass Voronoi')) this.onBeat_Stained();
       if (is('Emo Slashes')) this.onBeat_EmoSlashes();
 
-      // New scenes
-      if (is('Particles')) this.onBeat_Particles();
-      if (is('Tunnel')) this.onBeat_Tunnel();
-      if (is('Terrain')) this.onBeat_Terrain();
-      if (is('Typography')) this.onBeat_Typography();
+      if (is('Particles')) this.onBeat_Particles?.();
+      if (is('Tunnel')) this.onBeat_Tunnel?.();
+      if (is('Terrain')) this.onBeat_Terrain?.();
+      if (is('Typography')) this.onBeat_Typography?.();
 
       if (this.beatCount % this.downbeatEvery === 1) {
         this.onDownbeat();
@@ -724,7 +744,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (is('Stained Glass Voronoi')) this.onDownbeat_Stained();
     if (is('Emo Slashes')) this.onDownbeat_EmoSlashes();
 
-    // New scenes
     if (is('Tunnel')) this.onDownbeat_Tunnel();
 
     if (this.autoSceneOnDownbeat && cur === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
@@ -746,8 +765,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Scene switch
-  private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, sceneName: string) {
-    const name = this.canonicalizeScene(sceneName);
+  private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
     switch (name) {
       case 'Lyric Lines': this.drawLyricLines(ctx, w, h, time, dt); break;
       case 'Beat Ball': this.drawBeatBall(ctx, w, h, time, dt); break;
@@ -756,7 +774,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       case 'Stained Glass Voronoi': this.drawStainedGlassVoronoi(ctx, w, h, time, dt); break;
       case 'Emo Slashes': this.drawEmoSlashes(ctx, w, h, time, dt); break;
 
-      // New scenes
       case 'Particles': this.drawParticlesScene(ctx, w, h, time, dt); break;
       case 'Tunnel': this.drawTunnelScene(ctx, w, h, time, dt); break;
       case 'Terrain': this.drawTerrainScene(ctx, w, h, time, dt); break;
@@ -816,7 +833,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
   private onBeat_Particles() {
     this.simpleParticlePulse = 1;
-    // burst
     const w = this.bufferA.width, h = this.bufferA.height;
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const burst = Math.round(20 + (this.features.energy ?? 0.5) * 40);
@@ -838,7 +854,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
   private drawParticlesScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // background
     const bg = ctx.createLinearGradient(0, 0, w, h);
     const lastCol = this.palette.colors[this.palette.colors.length - 1] || this.palette.secondary;
     bg.addColorStop(0, this.palette.colors[0] || this.palette.dominant);
@@ -860,7 +875,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const p = this.simpleParticles[i];
       p.life += dt;
       if (p.life >= p.ttl) {
-        // respawn
         p.x = Math.random() * w;
         p.y = Math.random() * h;
         p.vx = (-0.5 + Math.random()) * 40;
@@ -869,11 +883,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         p.ttl = 2 + Math.random() * 3;
         p.alpha = 0.6 + Math.random() * 0.4;
       }
-      // integrate
       const boost = 1 + pulse * 1.2;
       p.x += p.vx * dt * boost;
       p.y += p.vy * dt * boost;
-      // wrap
+
       if (p.x < -5) p.x = w + 5;
       if (p.x > w + 5) p.x = -5;
       if (p.y < -5) p.y = h + 5;
@@ -903,7 +916,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.tunnelPulse = 1.4;
   }
   private drawTunnelScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Background
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const bg = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h));
     bg.addColorStop(0, `hsla(${(hue + 220) % 360}, 40%, 7%, 1)`);
@@ -911,7 +923,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Advance rings
     const speed = (this.tunnelSpeed + (this.features.energy ?? 0.5) * 20) * (1 + this.tunnelPulse * 0.6);
     this.tunnelPulse = Math.max(0, this.tunnelPulse - dt * 1.8);
 
@@ -921,7 +932,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
 
     const cx = w / 2;
-    const cy = h / 2;
+       const cy = h / 2;
     const spokes = this.reduceMotion ? 12 : 24;
 
     ctx.save();
@@ -941,7 +952,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.arc(0, 0, radius, 0, Math.PI * 2);
       ctx.stroke();
 
-      // spokes
       ctx.lineWidth = Math.max(1, radius * 0.02);
       for (let i = 0; i < spokes; i++) {
         const ang = (i / spokes) * Math.PI * 2 + time * 0.4;
@@ -956,7 +966,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
     ctx.restore();
 
-    // Vignette
     ctx.globalAlpha = 0.3;
     const vg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.45, cx, cy, Math.max(w, h) * 0.8);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -971,11 +980,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.terrainPulse = Math.min(1, this.terrainPulse + 0.8);
   }
   private drawTerrainScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    // Update time
     this.terrainT += dt * (0.15 + (this.features.danceability ?? 0.5) * 0.25);
     this.terrainPulse = Math.max(0, this.terrainPulse - dt * 1.5);
 
-    // Background gradient
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const sky = ctx.createLinearGradient(0, 0, 0, h);
     sky.addColorStop(0, `hsla(${(hue + 200) % 360}, 50%, 14%, 1)`);
@@ -1011,13 +1018,11 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Rim light
       ctx.strokeStyle = `hsla(${(hueL + 30) % 360}, 90%, 70%, ${0.25 - L * 0.05})`;
       ctx.lineWidth = Math.max(1, 2 - L * 0.3);
       ctx.stroke();
     }
 
-    // Stars
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = '#ffffff';
     for (let i = 0; i < 40; i++) {
@@ -1037,7 +1042,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       freq *= 1.9;
       amp *= 0.5;
     }
-    return v; // range ~[-1,1]
+    return v;
   }
 
   // Typography scene
@@ -1049,7 +1054,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.prepareTextField(this.lyricText || 'DWDW', w, h);
     }
 
-    // Background
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const bg = ctx.createLinearGradient(0, 0, w, h);
     bg.addColorStop(0, `hsla(${(hue + 210) % 360}, 40%, 8%, 1)`);
@@ -1057,7 +1061,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Title text
     const minDim = Math.min(w, h);
     const fontPx = Math.round(minDim * 0.16);
     const cx = w / 2;
@@ -1077,20 +1080,16 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Shadow/glow
     ctx.shadowBlur = Math.max(8, fontPx * 0.15) * (0.4 + glow * 1.2);
     ctx.shadowColor = color1;
 
-    // Fill text
     ctx.fillStyle = grad;
     ctx.fillText(this.lyricText || 'DWDW', cx, cy);
 
-    // Outline
     ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.06));
     ctx.strokeStyle = `rgba(255,255,255,${0.85})`;
     ctx.strokeText(this.lyricText || 'DWDW', cx, cy);
 
-    // Animated highlight band
     const t = (time * 0.5) % 1;
     const bandX = (t - 0.5) * (minDim * 0.9);
     ctx.globalCompositeOperation = 'source-atop';
@@ -1682,7 +1681,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     return rgbToHsl(hexToRgb(col)!).h;
   }
 
-  // Neon Bars
+  // Neon Bars (omitted earlier parts kept the same)
   private ensureNeonBars(w: number) {
     if (this.neonBars.length && Math.abs(this.neonLastLayoutW - w) < 16) return;
     this.neonLastLayoutW = w;
@@ -1989,7 +1988,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.shadowBlur = 0;
   }
 
-  // Emo Slashes
+  // Emo Slashes (unchanged structure)
   private ensureEmoPetals(w: number, h: number) {
     const target = this.reduceMotion ? 60 : 160;
     while (this.emoPetals.length < target) {
@@ -2060,628 +2059,233 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.emoHeroPulse = 1;
     this.emoHeroGleam = 0;
   }
-  private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    if (this.emoBgImg) {
-      const img = this.emoBgImg;
-      const cw = img.naturalWidth;
-      const ch = img.naturalHeight;
-      const targetAR = w / h;
-      const srcAR = cw / ch;
-      let sx = 0, sy = 0, sw = cw, sh = ch;
-      if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
-      else { sh = cw / targetAR; sy = (ch - sh) / 2; }
-      const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05;
-      const dw = w * zoom;
-      const dh = h * zoom;
-      const dx = (w - dw) / 2;
-      const dy = (h - dh) / 2;
+ private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+  // Background: image if provided, otherwise gradient
+  if (this.emoBgImg) {
+    const img = this.emoBgImg;
+    const cw = img.naturalWidth;
+    const ch = img.naturalHeight;
+    const targetAR = w / h;
+    const srcAR = cw / ch;
+    let sx = 0, sy = 0, sw = cw, sh = ch;
+    if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
+    else { sh = cw / targetAR; sy = (ch - sh) / 2; }
+    const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05;
+    const dw = w * zoom, dh = h * zoom;
+    const dx = (w - dw) / 2, dy = (h - dh) / 2;
 
-      const oldFilter = (ctx as any).filter ?? 'none';
-      try { (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)'; } catch {}
-      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
-      try { (ctx as any).filter = oldFilter; } catch {}
+    const oldFilter = (ctx as any).filter ?? 'none';
+    try { (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)'; } catch {}
+    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    try { (ctx as any).filter = oldFilter; } catch {}
 
-      ctx.globalAlpha = 0.35;
-      const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
-      vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(0,0,0,0.9)');
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalAlpha = 1;
-    } else {
-      const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-      const g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
-      g.addColorStop(1, `hsla(${(baseHue + 260) % 360}, 30%, 10%, 1)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-    }
-
-    ctx.globalAlpha = 0.12;
-    const baseHueFog = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-    ctx.fillStyle = `hsla(${(baseHueFog + 200) % 360}, 50%, 60%, 1)`;
-    const fogT = time * 12;
-    for (let i = 0; i < 3; i++) {
-      const rx = (Math.sin(fogT * 0.03 + i * 2.1) * 0.5 + 0.5) * w;
-      const ry = (Math.cos(fogT * 0.025 + i * 1.7) * 0.5 + 0.5) * h;
-      const rr = Math.min(w, h) * (0.35 + i * 0.22);
-      ctx.beginPath();
-      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    this.ensureEmoPetals(w, h);
-    const gravity = 20 + (this.features.energy ?? 0.5) * 60;
-    const drift = (this.features.danceability ?? 0.5) * 20;
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let i = this.emoPetals.length - 1; i >= 0; i--) {
-      const p = this.emoPetals[i];
-      p.life += dt;
-      if (p.life >= p.ttl) {
-        p.x = Math.random() * w;
-        p.y = -10;
-        p.vx = (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5));
-        p.vy = (10 + Math.random() * 40) * (0.7 + (this.features.energy ?? 0.5));
-        p.life = 0;
-        p.ttl = 6 + Math.random() * 10;
-      }
-
-      p.vy += gravity * dt * 0.02;
-      p.vx += (Math.sin(time * 1.4 + i) * drift * 0.02) * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rot += p.vr * dt;
-
-      if (p.y > h + 12) { p.y = -12; p.x = Math.random() * w; }
-      if (p.x < -12) p.x = w + 12;
-      if (p.x > w + 12) p.x = -12;
-
-      const size = p.size * (1 + 0.08 * Math.sin(time * 3 + i));
-      const lgt = 55 + (this.features.valence ?? 0.5) * 15;
-      const col = `hsla(${(p.hue + 360) % 360}, 85%, ${lgt}%, ${p.alpha})`;
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = col;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(0, -size);
-      ctx.bezierCurveTo(size * 0.7, -size * 0.2, size * 0.7, size * 0.8, 0, size);
-      ctx.bezierCurveTo(-size * 0.7, size * 0.8, -size * 0.7, -size * 0.2, 0, -size);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.globalAlpha = 0.25;
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.lineWidth = Math.max(1, size * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(0, -size * 0.6);
-      ctx.quadraticCurveTo(size * 0.2, 0, 0, size * 0.7);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      ctx.restore();
-    }
-    ctx.restore();
-
-    if (this.emoHeroImg) {
-      const tiltSpring = 6.0;
-      this.emoHeroTiltVel += (-this.emoHeroTilt) * tiltSpring * dt;
-      this.emoHeroTiltVel *= 0.90;
-      this.emoHeroTilt += this.emoHeroTiltVel * dt;
-
-      const sway = (Math.sin(time * 0.6) * (this.reduceMotion ? 0.5 : 1)) * (Math.PI / 180) * 2.0;
-      const tilt = this.emoHeroTilt + sway;
-
-      const gleamSpeed = 1 / 0.9;
-      this.emoHeroGleam = Math.min(1, this.emoHeroGleam + dt * gleamSpeed);
-      this.emoHeroPulse = Math.max(0, this.emoHeroPulse - dt * 1.5);
-
-      const minDim = Math.min(w, h);
-      const baseScale = this.emoHeroScale;
-      const targetW = minDim * baseScale;
-      const img = this.emoHeroImg;
-      const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
-      const drawW = targetW;
-      const drawH = targetW / aspect;
-
-      const cx2 = w * 0.5;
-      const cy2 = h * 0.58;
-
-      const hue2 = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-
-      ctx.save();
-      ctx.translate(cx2, cy2);
-      ctx.rotate(tilt);
-      ctx.shadowBlur = 20 + 40 * this.emoHeroPulse;
-      ctx.shadowColor = `hsla(${hue2}, 90%, 60%, ${0.35 + 0.4 * this.emoHeroPulse})`;
-      ctx.globalAlpha = 0.98;
-      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-      ctx.globalAlpha = 1;
-
-      const gleamT = this.emoHeroGleam;
-      const bandX = (gleamT - 0.2) * drawW;
-      ctx.globalCompositeOperation = 'source-atop';
-      const g = ctx.createLinearGradient(bandX - drawW, -drawH, bandX + drawW, drawH);
-      const a0 = 0;
-      const a1 = Math.min(0.28, 0.12 + this.emoHeroPulse * 0.35);
-      g.addColorStop(0.34, `rgba(255,255,255,${a0})`);
-      g.addColorStop(0.5, `rgba(255,255,255,${a1})`);
-      g.addColorStop(0.66, `rgba(255,255,255,${a0})`);
-      ctx.fillStyle = g;
-      ctx.fillRect(-drawW / 2 - drawW, -drawH / 2 - drawH, drawW * 3, drawH * 3);
-      ctx.globalCompositeOperation = 'source-over';
-
-      ctx.restore();
-    }
-
-    this.emoGlow = Math.max(0, this.emoGlow - dt * 2.5);
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let i = this.emoSlashes.length - 1; i >= 0; i--) {
-      const s = this.emoSlashes[i];
-      s.life += dt;
-      const t = Math.min(1, s.life / s.max);
-      if (s.life >= s.max) { this.emoSlashes.splice(i, 1); continue; }
-
-      const alpha = (1 - t) * (0.65 + this.emoGlow * 0.35);
-      const lw = s.width * (1 + (this.beatActive ? 0.3 : 0));
-      const grad = ctx.createLinearGradient(-s.len / 2, 0, s.len / 2, 0);
-      grad.addColorStop(0, `hsla(${(s.hue + 180) % 360}, 100%, 60%, 0)`);
-      grad.addColorStop(0.5, `hsla(${s.hue}, 100%, 70%, ${alpha})`);
-      grad.addColorStop(1, `hsla(${(s.hue + 180) % 360}, 100%, 60%, 0)`);
-
-      ctx.save();
-      ctx.translate(s.x, s.y);
-      ctx.rotate(s.angle);
-
-      ctx.shadowBlur = 24 + this.emoGlow * 24;
-      ctx.shadowColor = `hsla(${s.hue}, 100%, 65%, ${alpha})`;
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = lw;
-      ctx.beginPath();
-      ctx.moveTo(-s.len / 2, 0);
-      ctx.lineTo(s.len / 2, 0);
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = `hsla(${s.hue}, 100%, 85%, ${alpha * 0.9})`;
-      ctx.lineWidth = Math.max(1, lw * 0.35);
-      ctx.beginPath();
-      ctx.moveTo(-s.len / 2, 0);
-      ctx.lineTo(s.len / 2, 0);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let i = this.emoRipples.length - 1; i >= 0; i--) {
-      const r = this.emoRipples[i];
-      r.life += dt;
-      if (r.life >= r.max) { this.emoRipples.splice(i, 1); continue; }
-      r.r += r.vr * dt;
-      const t = r.life / r.max;
-      const alpha = (1 - t) * 0.45;
-      ctx.shadowBlur = 24;
-      ctx.shadowColor = `hsla(${r.hue}, 100%, 60%, ${alpha})`;
-      ctx.strokeStyle = `hsla(${r.hue}, 100%, 70%, ${alpha})`;
-      ctx.lineWidth = Math.max(2, Math.min(12, r.r * 0.02));
-      ctx.beginPath();
-      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-    ctx.shadowBlur = 0;
-
-    ctx.globalAlpha = 0.25;
-    const vg2 = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
-    vg2.addColorStop(0, 'rgba(0,0,0,0)');
-    vg2.addColorStop(1, 'rgba(0,0,0,0.9)');
-    ctx.fillStyle = vg2;
+    ctx.globalAlpha = 0.35;
+    const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.9)');
+    ctx.fillStyle = vg;
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
+  } else {
+    const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
+    g.addColorStop(1, `hsla(${(baseHue + 260) % 360}, 30%, 10%, 1)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
   }
 
-  // Voronoi core (inside class, no dangling "poly")
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
+  // Soft fog
+  ctx.globalAlpha = 0.12;
+  const baseHueFog = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+  ctx.fillStyle = `hsla(${(baseHueFog + 200) % 360}, 50%, 60%, 1)`;
+  const fogT = time * 12;
+  for (let i = 0; i < 3; i++) {
+    const rx = (Math.sin(fogT * 0.03 + i * 2.1) * 0.5 + 0.5) * w;
+    const ry = (Math.cos(fogT * 0.025 + i * 1.7) * 0.5 + 0.5) * h;
+    const rr = Math.min(w, h) * (0.35 + i * 0.22);
+    ctx.beginPath();
+    ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
+  // Petals
+  this.ensureEmoPetals(w, h);
+  const gravity = 20 + (this.features.energy ?? 0.5) * 60;
+  const drift = (this.features.danceability ?? 0.5) * 20;
 
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
-
-        const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
-
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        if (poly.length === 0) break;
-      }
-
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-
-        let radius = 0;
-        for (const p of poly) {
-          const d = Math.hypot(p.x - cx, p.y - cy);
-          if (d > radius) radius = d;
-        }
-
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = this.emoPetals.length - 1; i >= 0; i--) {
+    const p = this.emoPetals[i];
+    p.life += dt;
+    if (p.life >= p.ttl) {
+      p.x = Math.random() * w; p.y = -10;
+      p.vx = (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5));
+      p.vy = (10 + Math.random() * 40) * (0.7 + (this.features.energy ?? 0.5));
+      p.life = 0; p.ttl = 6 + Math.random() * 10;
     }
 
-    return cells;
-  }
+    p.vy += gravity * dt * 0.02;
+    p.vx += (Math.sin(time * 1.4 + i) * drift * 0.02) * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.rot += p.vr * dt;
 
-  // Lyrics fetching
-  private async refetchLyricsForCurrentTrack() {
-    if (!this.lastTrackId) return;
-    try {
-      const pb = await (this.api as any).getCurrentPlaybackCached?.().catch(() => null);
-      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
-      if (tr) return this.fetchLyricsLRCLIB(tr);
-    } catch {}
-  }
-  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
-    try {
-      const trackName = track.name || '';
-      const artistName = (track.artists || []).map(a => a.name).join(', ');
-      const albumName = track.album?.name || '';
-      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
+    if (p.y > h + 12) { p.y = -12; p.x = Math.random() * w; }
+    if (p.x < -12) p.x = w + 12;
+    if (p.x > w + 12) p.x = -12;
 
-      const params = new URLSearchParams();
-      if (trackName) params.set('track_name', trackName);
-      if (artistName) params.set('artist_name', artistName);
-      if (albumName) params.set('album_name', albumName);
-      if (durationSec) params.set('duration', String(durationSec));
-
-      const url = `https://lrclib.net/api/search?${params.toString()}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
-      const data = await res.json();
-
-      let synced = '';
-      let plain = '';
-      if (Array.isArray(data) && data.length) {
-        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
-        synced = best?.syncedLyrics || '';
-        plain = best?.plainLyrics || '';
-      }
-
-      let state: LyricsState | null = null;
-      if (synced && typeof synced === 'string') {
-        const lines = parseLRC(synced);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
-      } else if (plain && typeof plain === 'string') {
-        const lines = parsePlainLyrics(plain, durationSec);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
-      }
-
-      this.lyrics = state;
-      this.currentLyricIndex = -1;
-    } catch {
-      this.lyrics = null;
-      this.currentLyricIndex = -1;
-    }
-  }
-  private updateCurrentLyricLine() {
-    if (!this.lyrics || !this.lyrics.lines.length) return;
-    const t = this.playbackMs / 1000;
-    const lines = this.lyrics.lines;
-
-    let lo = 0, hi = lines.length - 1, idx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
-    }
-
-    if (idx !== -1 && idx !== this.currentLyricIndex) {
-      this.currentLyricIndex = idx;
-      const text = lines[idx].text || '';
-      if (text.trim()) this.setLyricText(text);
-    }
-  }
-  private startPlaybackPolling() {
-    const tick = async () => {
-      try {
-        const pb = await (this.api as any).getCurrentPlaybackCached?.();
-        if (pb) {
-          this.hadPlaybackPoll = true;
-          this.playbackIsPlaying = !!pb.is_playing;
-          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-
-          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
-          if (tr && tr.id && tr.id !== this.lastTrackId) {
-            this.onTrack(tr).catch(() => {});
-          }
-
-          const drift = Math.abs(ms - this.playbackMs);
-          if (drift > 750) this.playbackMs = ms;
-        }
-      } catch {}
-    };
-    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
-    this.pbPollTimer = setInterval(tick, 1000);
-    tick().catch(() => {});
-  }
-
-  // Lyrics overlay
-  private drawLyricsOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
-    if (!this.lyricsOverlayEnabled) return;
-
-    let text = '';
-    let progress = 0;
-
-    if (this.lyrics && this.lyrics.lines.length) {
-      const lines = this.lyrics.lines;
-      const t = this.playbackMs / 1000;
-
-      let idx = this.currentLyricIndex;
-      if (idx < 0) {
-        if (t < lines[0].start) idx = 0;
-        else if (t > lines[lines.length - 1].end) idx = lines.length - 1;
-        else {
-          idx = lines.findIndex(l => t < l.end);
-          if (idx === -1) idx = lines.length - 1;
-        }
-      }
-
-      const line = lines[idx];
-      const raw = (line?.text || '').trim();
-      text = raw || this.lyricText || '';
-      const dur = Math.max(0.1, (line.end - line.start) || 0.1);
-      if (t >= line.start && t <= line.end) progress = Math.max(0, Math.min(1, (t - line.start) / dur));
-      else if (t > line.end) progress = 1;
-      else progress = 0;
-    } else {
-      text = this.lyricText || '';
-      progress = 0;
-    }
-
-    if (!text) return;
-
-    const minDim = Math.min(W, H);
-    const fontPx = Math.round(minDim * 0.045 * this.lyricsOverlayScale);
-    const margin = Math.round(minDim * 0.05);
-    const padX = Math.round(fontPx * 0.6);
-    const padY = Math.round(fontPx * 0.45);
+    const size = p.size * (1 + 0.08 * Math.sin(time * 3 + i));
+    const lgt = 55 + (this.features.valence ?? 0.5) * 15;
+    const col = `hsla(${(p.hue + 360) % 360}, 85%, ${lgt}%, ${p.alpha})`;
 
     ctx.save();
-
-    const fontFace = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-    ctx.font = fontFace;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    const metrics = ctx.measureText(text);
-    const textW = metrics.width;
-    const boxW = Math.min(W - margin * 2, Math.ceil(textW + padX * 2));
-    const boxH = Math.ceil(fontPx + padY * 2);
-
-    const cx = W / 2;
-    const by = H - margin;
-    const bx = cx - boxW / 2;
-    const topY = by - boxH + Math.round(padY * 0.35);
-
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#000';
-    roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = col;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.bezierCurveTo(size * 0.7, -size * 0.2, size * 0.7, size * 0.8, 0, size);
+    ctx.bezierCurveTo(-size * 0.7, size * 0.8, -size * 0.7, -size * 0.2, 0, -size);
+    ctx.closePath();
     ctx.fill();
+
+    ctx.globalAlpha = 0.25;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.6);
+    ctx.quadraticCurveTo(size * 0.2, 0, 0, size * 0.7);
+    ctx.stroke();
     ctx.globalAlpha = 1;
-
-    ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.shadowColor = 'transparent';
-    ctx.strokeText(text, cx, by);
-    ctx.fillText(text, cx, by);
-
-    if (this.lyrics?.synced) {
-      const baseHue =
-        this.keyHueTarget != null && this.keyColorEnabled
-          ? this.keyHueTarget
-          : rgbToHsl(hexToRgb(this.palette.dominant)!).h;
-      const hi = `hsla(${baseHue}, 100%, ${60 + (this.features.valence ?? 0.5) * 15}%, 1)`;
-      const hi2 = `hsla(${(baseHue + 20) % 360}, 100%, 55%, 1)`;
-      const grad = ctx.createLinearGradient(cx - textW / 2, 0, cx + textW / 2, 0);
-      grad.addColorStop(0, hi);
-      grad.addColorStop(1, hi2);
-
-      const progW = Math.max(0, textW * progress);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(cx - textW / 2, by - fontPx, progW, fontPx * 1.2);
-      ctx.clip();
-
-      ctx.fillStyle = grad;
-      ctx.shadowColor = hi;
-      ctx.shadowBlur = Math.max(6, Math.round(fontPx * 0.25));
-      ctx.fillText(text, cx, by);
-      ctx.restore();
-
-      const barY = by + Math.round(fontPx * 0.18);
-      const barR = Math.round(Math.min(10, fontPx * 0.18));
-      const barPad = Math.round(padX * 0.4);
-      const barW = boxW - barPad * 2;
-      const filled = Math.round(barW * progress);
-
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#fff';
-      roundRect(ctx, bx + barPad, barY, barW, Math.max(2, Math.round(fontPx * 0.08)), barR);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      const barGrad = ctx.createLinearGradient(bx + barPad, 0, bx + barPad + barW, 0);
-      barGrad.addColorStop(0, hi);
-      barGrad.addColorStop(1, hi2);
-      ctx.fillStyle = barGrad;
-      roundRect(ctx, bx + barPad, barY, Math.max(2, filled), Math.max(2, Math.round(fontPx * 0.08)), barR);
-      ctx.fill();
-    }
 
     ctx.restore();
   }
+  ctx.restore();
 
-  // Panels infra
-  private panelsRoot(): HTMLDivElement {
-    let root = document.getElementById('panels') as HTMLDivElement | null;
-    if (!root) {
-      root = document.createElement('div');
-      root.id = 'panels';
-      root.style.position = 'fixed';
-      root.style.top = '0';
-      root.style.left = '0';
-      root.style.width = '100%';
-      root.style.height = '100%';
-      root.style.pointerEvents = 'none';
-      root.style.zIndex = '1000';
-      document.body.appendChild(root);
-    }
-    return root;
-  }
-  private mountPanel(id: string, title: string, render: (body: HTMLDivElement) => void) {
-    const root = this.panelsRoot();
-    let panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.className = 'panel';
-      panel.dataset.id = id;
-      panel.style.position = 'absolute';
-      panel.style.right = '12px';
-      panel.style.top = id === 'quality' ? '56px' : id === 'access' ? '128px' : id === 'flow' ? '200px' : id === 'lyrics' ? '272px' : '312px';
-      panel.style.minWidth = '260px';
-      panel.style.maxWidth = '80vw';
-      panel.style.pointerEvents = 'auto';
-      panel.style.background = 'rgba(20,20,28,0.92)';
-      panel.style.border = '1px solid rgba(255,255,255,0.12)';
-      panel.style.borderRadius = '10px';
-      panel.style.boxShadow = '0 6px 24px rgba(0,0,0,0.4)';
-      panel.style.padding = '10px';
-      panel.style.color = '#fff';
-      panel.style.display = 'none';
+  // Hero image (optional)
+  if (this.emoHeroImg) {
+    const tiltSpring = 6.0;
+    this.emoHeroTiltVel += (-this.emoHeroTilt) * tiltSpring * dt;
+    this.emoHeroTiltVel *= 0.90;
+    this.emoHeroTilt += this.emoHeroTiltVel * dt;
 
-      panel.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <strong>${title}</strong>
-          <button class="close" aria-label="Close" style="background:#2a2a35;border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;">✕</button>
-        </div>
-        <div class="body"></div>
-      `;
-      root.appendChild(panel);
-      panel.querySelector<HTMLButtonElement>('button.close')!.onclick = () => this.togglePanel(id, false);
-    }
-    render(panel.querySelector<HTMLDivElement>('.body')!);
-  }
-  private togglePanel(id: string, force?: boolean) {
-    const root = this.panelsRoot();
-    const panel = root.querySelector<HTMLDivElement>(`.panel[data-id="${id}"]`);
-    if (!panel) return;
-    const isVisible = panel.style.display !== 'none';
-    const show = force ?? !isVisible;
-    panel.style.display = show ? 'block' : 'none';
+    const sway = (Math.sin(time * 0.6) * (this.reduceMotion ? 0.5 : 1)) * (Math.PI / 180) * 2.0;
+    const tilt = this.emoHeroTilt + sway;
+
+    const gleamSpeed = 1 / 0.9;
+    this.emoHeroGleam = Math.min(1, this.emoHeroGleam + dt * gleamSpeed);
+    this.emoHeroPulse = Math.max(0, this.emoHeroPulse - dt * 1.5);
+
+    const minDim = Math.min(w, h);
+    const baseScale = this.emoHeroScale;
+    const drawW = minDim * baseScale;
+    const aspect = this.emoHeroImg.naturalWidth / Math.max(1, this.emoHeroImg.naturalHeight);
+    const drawH = drawW / aspect;
+
+    const cx = w * 0.5;
+    const cy = h * 0.58;
+    const hue2 = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(tilt);
+    ctx.shadowBlur = 20 + 40 * this.emoHeroPulse;
+    ctx.shadowColor = `hsla(${hue2}, 90%, 60%, ${0.35 + 0.4 * this.emoHeroPulse})`;
+    ctx.globalAlpha = 0.98;
+    ctx.drawImage(this.emoHeroImg, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.globalAlpha = 1;
+
+    const gleamT = this.emoHeroGleam;
+    const bandX = (gleamT - 0.2) * drawW;
+    ctx.globalCompositeOperation = 'source-atop';
+    const g = ctx.createLinearGradient(bandX - drawW, -drawH, bandX + drawW, drawH);
+    const a0 = 0;
+    const a1 = Math.min(0.28, 0.12 + this.emoHeroPulse * 0.35);
+    g.addColorStop(0.34, `rgba(255,255,255,${a0})`);
+    g.addColorStop(0.5, `rgba(255,255,255,${a1})`);
+    g.addColorStop(0.66, `rgba(255,255,255,${a0})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-drawW / 2 - drawW, -drawH / 2 - drawH, drawW * 3, drawH * 3);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
   }
 
-  private closeAllPanels() {
-    this.togglePanel('quality', false);
-    this.togglePanel('access', false);
-    this.togglePanel('flow', false);
-    this.togglePanel('lyrics', false);
+  // Slashes
+  this.emoGlow = Math.max(0, this.emoGlow - dt * 2.5);
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = this.emoSlashes.length - 1; i >= 0; i--) {
+    const s = this.emoSlashes[i];
+    s.life += dt;
+    const t = Math.min(1, s.life / s.max);
+    if (s.life >= s.max) { this.emoSlashes.splice(i, 1); continue; }
+
+    const alpha = (1 - t) * (0.65 + this.emoGlow * 0.35);
+    const lw = s.width * (1 + (this.beatActive ? 0.3 : 0));
+    const grad = ctx.createLinearGradient(-s.len / 2, 0, s.len / 2, 0);
+    grad.addColorStop(0, `hsla(${(s.hue + 180) % 360}, 100%, 60%, 0)`);
+    grad.addColorStop(0.5, `hsla(${s.hue}, 100%, 70%, ${alpha})`);
+    grad.addColorStop(1, `hsla(${(s.hue + 180) % 360}, 100%, 60%, 0)`);
+
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.angle);
+
+    ctx.shadowBlur = 24 + this.emoGlow * 24;
+    ctx.shadowColor = `hsla(${s.hue}, 100%, 65%, ${alpha})`;
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(-s.len / 2, 0);
+    ctx.lineTo(s.len / 2, 0);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `hsla(${s.hue}, 100%, 85%, ${alpha * 0.9})`;
+    ctx.lineWidth = Math.max(1, lw * 0.35);
+    ctx.beginPath();
+    ctx.moveTo(-s.len / 2, 0);
+    ctx.lineTo(s.len / 2, 0);
+    ctx.stroke();
+
+    ctx.restore();
   }
+  ctx.restore();
 
-  private autowirePanelButtons() {
-    const tryWire = (which: 'quality' | 'access') => {
-      if (which === 'quality' && this.wiredQualityBtn) return;
-      if (which === 'access' && this.wiredAccessBtn) return;
-
-      const selectors = which === 'quality'
-        ? [
-            '[data-action="quality"]',
-            '[data-panel="quality"]',
-            '#quality', '#btn-quality', '#open-quality',
-            '.quality-button', '.btn-quality'
-          ]
-        : [
-            '[data-action="accessibility"]',
-            '[data-action="access"]',
-            '[data-panel="accessibility"]',
-            '[data-panel="access"]',
-            '#accessibility', '#access', '#btn-accessibility', '#btn-access',
-            '#open-accessibility', '#open-access',
-            '.accessibility-button', '.btn-accessibility', '.btn-access'
-          ];
-
-      let el: HTMLElement | null = null;
-      for (const sel of selectors) {
-        el = document.querySelector(sel) as HTMLElement | null;
-        if (el) break;
-      }
-      if (!el) return;
-
-      const handler = (ev: Event) => {
-        ev.preventDefault();
-        // Prevent any other click listeners on this element from also firing (avoids double-toggle)
-        (ev as any).stopImmediatePropagation?.();
-        ev.stopPropagation();
-        if (which === 'quality') this.toggleQualityPanel();
-        else this.toggleAccessibilityPanel();
-      };
-      el.addEventListener('click', handler);
-      el.addEventListener('keydown', (ev: KeyboardEvent) => {
-        if (ev.key === 'Enter' || ev.key === ' ') handler(ev);
-      });
-
-      if (which === 'quality') this.wiredQualityBtn = true;
-      else this.wiredAccessBtn = true;
-    };
-
-    tryWire('quality');
-    tryWire('access');
-
-    if (this.wiredQualityBtn && this.wiredAccessBtn) {
-      if (this.controlsObserver) { this.controlsObserver.disconnect(); this.controlsObserver = undefined; }
-      return;
-    }
-
-    if (!this.controlsObserver) {
-      this.controlsObserver = new MutationObserver(() => {
-        tryWire('quality');
-        tryWire('access');
-        if (this.wiredQualityBtn && this.wiredAccessBtn && this.controlsObserver) {
-          this.controlsObserver.disconnect();
-          this.controlsObserver = undefined;
-        }
-      });
-      if (document.body) {
-        this.controlsObserver.observe(document.body, { childList: true, subtree: true });
-      } else {
-        document.addEventListener('DOMContentLoaded', () => {
-          if (document.body && this.controlsObserver) {
-            this.controlsObserver.observe(document.body, { childList: true, subtree: true });
-          }
-        });
-      }
-    }
+  // Ripples
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = this.emoRipples.length - 1; i >= 0; i--) {
+    const r = this.emoRipples[i];
+    r.life += dt;
+    if (r.life >= r.max) { this.emoRipples.splice(i, 1); continue; }
+    r.r += r.vr * dt;
+    const t = r.life / r.max;
+    const alpha = (1 - t) * 0.45;
+    ctx.shadowBlur = 24;
+    ctx.shadowColor = `hsla(${r.hue}, 100%, 60%, ${alpha})`;
+    ctx.strokeStyle = `hsla(${r.hue}, 100%, 70%, ${alpha})`;
+    ctx.lineWidth = Math.max(2, Math.min(12, r.r * 0.02));
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
   }
+  ctx.restore();
 
-  // Color helper inside class
-  private mixColor(a: string, b: string, t: number) {
-    const pa
+  // Vignette
+  ctx.globalAlpha = 0.25;
+  const vg2 = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
+  vg2.addColorStop(0, 'rgba(0,0,0,0)');
+  vg2.addColorStop(1, 'rgba(0,0,0,0.9)');
+  ctx.fillStyle = vg2;
+   ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = 1;
+
+ }
+
+} //
