@@ -310,7 +310,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     // Wire panel buttons (with MutationObserver inside)
     this.autowirePanelButtons();
 
-    // IMPORTANT: start the render loop
+    // Start the render loop
     this.start();
 
     // Optional: playback polling for lyrics timing
@@ -374,9 +374,30 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
+  // Map UI-provided scene values to canonical names used internally
+  private canonicalizeScene(name: string | null | undefined): string {
+    const raw = (name || '').trim();
+    const n = raw.toLowerCase();
+    // Handle the four problem scenes with multiple aliases and lowercase ids
+    if (n.includes('particle')) return 'Particles';
+    if (n.includes('tunnel') || n.includes('wormhole') || n.includes('warp')) return 'Tunnel';
+    if (n.includes('terrain') || n.includes('mountain') || n.includes('landscape')) return 'Terrain';
+    if (n.includes('typograph') || n === 'type' || n.includes('title') || n.includes('text')) return 'Typography';
+    // Keep existing canonical names intact
+    if (n === 'auto') return 'Auto';
+    if (n.includes('lyric')) return 'Lyric Lines';
+    if (n.includes('beat') && n.includes('ball')) return 'Beat Ball';
+    if (n.includes('flow')) return 'Flow Field';
+    if (n.includes('neon') && n.includes('bar')) return 'Neon Bars';
+    if (n.includes('stained') || n.includes('voronoi')) return 'Stained Glass Voronoi';
+    if (n.includes('emo') || n.includes('slash')) return 'Emo Slashes';
+    // Fallback to original label
+    return raw || 'Auto';
+  }
+
   requestScene(scene: string) {
-    const name = scene || 'Auto';
-    if (name === this.sceneName) return;
+    const name = this.canonicalizeScene(scene);
+    if (name === this.sceneName && !this.nextSceneName) return;
     this.nextSceneName = name;
     this.crossfadeT = this.crossfadeDur;
     this.emit('sceneChanged', name);
@@ -609,8 +630,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bw = this.bufferA.width;
     const bh = this.bufferA.height;
 
-    const curName = this.sceneName;
-    const nextName = this.nextSceneName;
+    // Canonicalize before drawing to handle any mismatched labels from UI
+    const curName = this.canonicalizeScene(this.sceneName);
+    const nextName = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
 
     this.updateCurrentLyricLine();
 
@@ -643,7 +665,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.ctx.fillStyle = '#ffffff88';
     this.ctx.font = '12px system-ui, sans-serif';
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(this.sceneName, W - 10, H - 10);
+    this.ctx.fillText(curName, W - 10, H - 10);
   }
 
   private updateBeat(time: number) {
@@ -656,18 +678,23 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       this.onBeat_Common();
 
-      if (this.sceneName === 'Beat Ball' || this.nextSceneName === 'Beat Ball') this.onBeat_Ball();
-      if (this.sceneName === 'Lyric Lines' || this.nextSceneName === 'Lyric Lines') this.onBeat_LyricLines();
-      if (this.sceneName === 'Flow Field' || this.nextSceneName === 'Flow Field') this.onBeat_FlowField();
-      if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') this.onBeat_NeonBars();
-      if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') this.onBeat_Stained();
-      if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') this.onBeat_EmoSlashes();
+      // Use canonicalized comparisons to avoid label mismatch issues
+      const cur = this.canonicalizeScene(this.sceneName);
+      const next = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
+      const is = (n: string) => cur === n || next === n;
+
+      if (is('Beat Ball')) this.onBeat_Ball();
+      if (is('Lyric Lines')) this.onBeat_LyricLines();
+      if (is('Flow Field')) this.onBeat_FlowField();
+      if (is('Neon Bars')) this.onBeat_NeonBars();
+      if (is('Stained Glass Voronoi')) this.onBeat_Stained();
+      if (is('Emo Slashes')) this.onBeat_EmoSlashes();
 
       // New scenes
-      if (this.sceneName === 'Particles' || this.nextSceneName === 'Particles') this.onBeat_Particles();
-      if (this.sceneName === 'Tunnel' || this.nextSceneName === 'Tunnel') this.onBeat_Tunnel();
-      if (this.sceneName === 'Terrain' || this.nextSceneName === 'Terrain') this.onBeat_Terrain();
-      if (this.sceneName === 'Typography' || this.nextSceneName === 'Typography') this.onBeat_Typography();
+      if (is('Particles')) this.onBeat_Particles();
+      if (is('Tunnel')) this.onBeat_Tunnel();
+      if (is('Terrain')) this.onBeat_Terrain();
+      if (is('Typography')) this.onBeat_Typography();
 
       if (this.beatCount % this.downbeatEvery === 1) {
         this.onDownbeat();
@@ -689,14 +716,18 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const count = Math.round(18 + energy * 30);
       this.spawnConfetti(count, 1.0);
     }
-    if (this.sceneName === 'Neon Bars' || this.nextSceneName === 'Neon Bars') this.onDownbeat_NeonBars();
-    if (this.sceneName === 'Stained Glass Voronoi' || this.nextSceneName === 'Stained Glass Voronoi') this.onDownbeat_Stained();
-    if (this.sceneName === 'Emo Slashes' || this.nextSceneName === 'Emo Slashes') this.onDownbeat_EmoSlashes();
+    const cur = this.canonicalizeScene(this.sceneName);
+    const next = this.nextSceneName ? this.canonicalizeScene(this.nextSceneName) : null;
+    const is = (n: string) => cur === n || next === n;
+
+    if (is('Neon Bars')) this.onDownbeat_NeonBars();
+    if (is('Stained Glass Voronoi')) this.onDownbeat_Stained();
+    if (is('Emo Slashes')) this.onDownbeat_EmoSlashes();
 
     // New scenes
-    if (this.sceneName === 'Tunnel' || this.nextSceneName === 'Tunnel') this.onDownbeat_Tunnel();
+    if (is('Tunnel')) this.onDownbeat_Tunnel();
 
-    if (this.autoSceneOnDownbeat && this.sceneName === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
+    if (this.autoSceneOnDownbeat && cur === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
       const choices = [
         'Lyric Lines',
         'Beat Ball',
@@ -715,7 +746,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Scene switch
-  private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
+  private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, sceneName: string) {
+    const name = this.canonicalizeScene(sceneName);
     switch (name) {
       case 'Lyric Lines': this.drawLyricLines(ctx, w, h, time, dt); break;
       case 'Beat Ball': this.drawBeatBall(ctx, w, h, time, dt); break;
@@ -2633,4 +2665,23 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.controlsObserver = new MutationObserver(() => {
         tryWire('quality');
         tryWire('access');
-        if (this.w
+        if (this.wiredQualityBtn && this.wiredAccessBtn && this.controlsObserver) {
+          this.controlsObserver.disconnect();
+          this.controlsObserver = undefined;
+        }
+      });
+      if (document.body) {
+        this.controlsObserver.observe(document.body, { childList: true, subtree: true });
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          if (document.body && this.controlsObserver) {
+            this.controlsObserver.observe(document.body, { childList: true, subtree: true });
+          }
+        });
+      }
+    }
+  }
+
+  // Color helper inside class
+  private mixColor(a: string, b: string, t: number) {
+    const pa
