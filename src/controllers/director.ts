@@ -2,11 +2,7 @@ import { SpotifyAPI } from '@spotify/api';
 import { Emitter } from '@utils/emitter';
 
 // UI palette
-export type UIPalette = {
-  dominant: string;
-  secondary: string;
-  colors: string[];
-};
+export type UIPalette = { dominant: string; secondary: string; colors: string[] };
 
 type DirectorEvents = {
   fps: (fps: number) => void;
@@ -15,59 +11,28 @@ type DirectorEvents = {
 };
 
 type AudioFeaturesLite = {
-  tempo?: number;
-  energy?: number;
-  danceability?: number;
-  valence?: number;
-  key?: number;
-  mode?: number;
+  tempo?: number; energy?: number; danceability?: number; valence?: number; key?: number; mode?: number;
 };
 
 // Flow field
-type FlowP = {
-  x: number; y: number;
-  px: number; py: number;
-  vx: number; vy: number;
-  life: number; ttl: number;
-  hue: number; size: number; alpha: number;
-};
-type FlowSprite = {
-  x: number; y: number;
-  vx: number; vy: number;
-  angle: number;
-  life: number; ttl: number;
-  scale: number; alpha: number;
-};
+type FlowP = { x: number; y: number; px: number; py: number; vx: number; vy: number; life: number; ttl: number; hue: number; size: number; alpha: number; };
+type FlowSprite = { x: number; y: number; vx: number; vy: number; angle: number; life: number; ttl: number; scale: number; alpha: number; };
 type FlowSettings = {
-  particleCount: number;
-  speed: number;
-  lineWidth: number;
-  colorMode: 'palette' | 'key' | 'image';
-  edgeOverlay: boolean;
-  swirlAmount: number;
-  spritesEnabled: boolean;
-  spriteCount: number;
-  spriteScalePct: number;
-  spriteBeatBurst: boolean;
+  particleCount: number; speed: number; lineWidth: number; colorMode: 'palette' | 'key' | 'image';
+  edgeOverlay: boolean; swirlAmount: number; spritesEnabled: boolean; spriteCount: number; spriteScalePct: number; spriteBeatBurst: boolean;
 };
 
 // Confetti
 type Confetti = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number; size: number; };
 
 // Neon bars
-type NeonBar = { v: number; target: number; peak: number; };
+type NeonBar = { v: number; target: number; peak: number };
 type Stinger = { start: number; dur: number; dir: 1 | -1; hue: number };
 
 // Lyrics
 type LyricWord = { start: number; end: number; text: string };
 type LyricLine = { start: number; end: number; text: string; words?: LyricWord[] };
-type LyricsState = {
-  provider: 'lrclib';
-  trackId: string | null;
-  synced: boolean;
-  lines: LyricLine[];
-  updatedAt: number;
-};
+type LyricsState = { provider: 'lrclib'; trackId: string | null; synced: boolean; lines: LyricLine[]; updatedAt: number; };
 
 // Stained Glass
 type SGSite = { x: number; y: number; color: { r: number; g: number; b: number } };
@@ -79,7 +44,7 @@ type EmoPetal = { x: number; y: number; vx: number; vy: number; rot: number; vr:
 type EmoSlash = { x: number; y: number; angle: number; life: number; max: number; len: number; width: number; hue: number; };
 type EmoRipple = { x: number; y: number; r: number; vr: number; life: number; max: number; hue: number };
 
-// Simple types for internal use
+// Simple types
 type RGB = { r: number; g: number; b: number };
 type HSL = { h: number; s: number; l: number };
 
@@ -105,9 +70,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Palettes
   private basePalette: UIPalette = {
-    dominant: '#22cc88',
-    secondary: '#cc2288',
-    colors: ['#22cc88', '#cc2288', '#22aacc', '#ffaa22']
+    dominant: '#22cc88', secondary: '#cc2288', colors: ['#22cc88', '#cc2288', '#22aacc', '#ffaa22']
   };
   private palette: UIPalette = { ...this.basePalette };
   private reduceMotion = false;
@@ -121,7 +84,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   // Audio features
   private features: AudioFeaturesLite = {};
   private lastTrackId: string | null = null;
-  private lastTrackDurationMs: number = 0;
+  private lastTrackDurationMs = 0;
   private featuresBackoffUntil = 0;
 
   // Beat timing
@@ -134,7 +97,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   // Key color morph
   private keyHueTarget: number | null = null;
-  private keyHueCurrent: number = 0;
+  private keyHueCurrent = 0;
 
   // Confetti
   private confetti: Confetti[] = [];
@@ -168,8 +131,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private albumImg: HTMLImageElement | null = null;
   private flowW = 0;
   private flowH = 0;
-  private flowVec: Float32Array | null = null; // [vx, vy] per texel
-  private flowMag: Float32Array | null = null; // magnitude
+  private flowVec: Float32Array | null = null;
+  private flowMag: Float32Array | null = null;
   private flowOverlayCanvas: HTMLCanvasElement | null = null;
   private flowImageCanvas: HTMLCanvasElement | null = null;
   private flowImageCtx: CanvasRenderingContext2D | null = null;
@@ -178,16 +141,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private flowSprites: FlowSprite[] = [];
 
   private flowSettings: FlowSettings = {
-    particleCount: 1200,
-    speed: 36,
-    lineWidth: 1.2,
-    colorMode: 'palette',
-    edgeOverlay: false,
-    swirlAmount: 0.6,
-    spritesEnabled: false,
-    spriteCount: 18,
-    spriteScalePct: 6,
-    spriteBeatBurst: true
+    particleCount: 1200, speed: 36, lineWidth: 1.2, colorMode: 'palette', edgeOverlay: false, swirlAmount: 0.6,
+    spritesEnabled: false, spriteCount: 18, spriteScalePct: 6, spriteBeatBurst: true
   };
 
   // Neon Bars
@@ -223,7 +178,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   constructor(private api: SpotifyAPI) {
     super();
-
     // Canvas
     this.canvas = document.createElement('canvas');
     this.canvas.style.display = 'block';
@@ -231,7 +185,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.canvas.style.height = '100%';
     const host = document.getElementById('canvas-host') || document.body;
     host.appendChild(this.canvas);
-
     const c2d = this.canvas.getContext('2d');
     if (!c2d) throw new Error('2D context not available');
     this.ctx = c2d;
@@ -242,8 +195,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const a = this.bufferA.getContext('2d');
     const b = this.bufferB.getContext('2d');
     if (!a || !b) throw new Error('2D buffer context not available');
-    this.bufCtxA = a;
-    this.bufCtxB = b;
+    this.bufCtxA = a; this.bufCtxB = b;
 
     // Resize
     const onResize = () => {
@@ -279,7 +231,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     window.addEventListener('resize', onResize);
     onResize();
 
-    // Wire panel buttons (click-only, no keyboard shortcuts)
+    // Wire panel buttons (click-only)
     this.autowirePanelButtons();
 
     // Expose for console debugging
@@ -350,7 +302,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   }
 
   // Map UI-provided scene values to canonical names used internally
-  // Removed scenes map to Auto.
   private canonicalizeScene(name: string | null | undefined): string {
     const raw = (name || '').trim();
     const n = raw.toLowerCase();
@@ -381,7 +332,6 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
   requestScene(scene: string) {
     const name = this.canonicalizeScene(scene);
-    console.log('[Director] requestScene:', scene, '=>', name);
     if (name === this.sceneName && !this.nextSceneName) return;
     this.nextSceneName = name;
     this.crossfadeT = this.crossfadeDur;
@@ -474,6 +424,195 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         });
     });
     this.togglePanel('access', undefined);
+  }
+
+  // VJ: Flow Field controls
+  toggleVJPanel() {
+    const s = this.flowSettings;
+    this.mountPanel('vj', 'VJ — Flow Field', (panel) => {
+      const hasAlbum = !!this.albumImg;
+      panel.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:10px;min-width:280px;max-width:360px;">
+          <div style="opacity:.8;font-size:12px;">Controls affect the Flow Field scene. Others are unaffected.</div>
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Particles</span>
+              <span id="vj-particles-label" style="opacity:.8;">${s.particleCount}</span>
+            </div>
+            <input id="vj-particles" type="range" min="100" max="4000" step="50" value="${s.particleCount}">
+          </label>
+
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Speed</span>
+              <span id="vj-speed-label" style="opacity:.8;">${s.speed.toFixed(0)}</span>
+            </div>
+            <input id="vj-speed" type="range" min="6" max="120" step="1" value="${s.speed}">
+          </label>
+
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Line width</span>
+              <span id="vj-width-label" style="opacity:.8;">${s.lineWidth.toFixed(2)}</span>
+            </div>
+            <input id="vj-width" type="range" min="0.2" max="4" step="0.05" value="${s.lineWidth}">
+          </label>
+
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Swirl</span>
+              <span id="vj-swirl-label" style="opacity:.8;">${s.swirlAmount.toFixed(2)}</span>
+            </div>
+            <input id="vj-swirl" type="range" min="0" max="1.5" step="0.01" value="${s.swirlAmount}">
+          </label>
+
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="vj-edge" type="checkbox" ${s.edgeOverlay ? 'checked' : ''} />
+            <span>Edge overlay</span>
+          </label>
+
+          <label>
+            <span>Color mode</span>
+            <select id="vj-color">
+              <option value="palette" ${s.colorMode === 'palette' ? 'selected' : ''}>Palette</option>
+              <option value="key" ${s.colorMode === 'key' ? 'selected' : ''}>Key color</option>
+              <option value="image" ${s.colorMode === 'image' ? 'selected' : ''} ${hasAlbum ? '' : 'disabled'}>Album image</option>
+            </select>
+            <div style="opacity:.7;font-size:12px;margin-top:4px;">${hasAlbum ? '' : 'Album image not loaded; enable once cover art is available.'}</div>
+          </label>
+
+          <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);" />
+
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="vj-sprites" type="checkbox" ${s.spritesEnabled ? 'checked' : ''} />
+            <span>Image sprites</span>
+          </label>
+
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Sprite count</span>
+              <span id="vj-spritecount-label" style="opacity:.8;">${s.spriteCount}</span>
+            </div>
+            <input id="vj-spritecount" type="range" min="0" max="64" step="1" value="${s.spriteCount}" ${s.spritesEnabled ? '' : 'disabled'}>
+          </label>
+
+          <label>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Sprite size (% min axis)</span>
+              <span id="vj-spritesz-label" style="opacity:.8;">${s.spriteScalePct}%</span>
+            </div>
+            <input id="vj-spritesz" type="range" min="2" max="24" step="1" value="${s.spriteScalePct}" ${s.spritesEnabled ? '' : 'disabled'}>
+          </label>
+
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+            <input id="vj-spriteburst" type="checkbox" ${s.spriteBeatBurst ? 'checked' : ''} ${s.spritesEnabled ? '' : 'disabled'} />
+            <span>Beat burst sprites</span>
+          </label>
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;">
+            <button id="vj-reset">Reset defaults</button>
+            <button id="vj-close">Close</button>
+          </div>
+        </div>
+      `;
+
+      const $ = (sel: string) => panel.querySelector(sel) as HTMLElement | null;
+
+      const particles = $('#vj-particles') as HTMLInputElement;
+      const particlesLabel = $('#vj-particles-label')!;
+      particles.addEventListener('input', () => {
+        const v = Math.max(50, Math.min(8000, parseInt(particles.value || '0', 10) || 0));
+        this.flowSettings.particleCount = v | 0;
+        particlesLabel.textContent = String(this.flowSettings.particleCount);
+        this.ensureFlowParticles();
+      });
+
+      const speed = $('#vj-speed') as HTMLInputElement;
+      const speedLabel = $('#vj-speed-label')!;
+      speed.addEventListener('input', () => {
+        const v = Math.max(1, Math.min(200, parseFloat(speed.value || '0') || 0));
+        this.flowSettings.speed = v;
+        speedLabel.textContent = v.toFixed(0);
+      });
+
+      const width = $('#vj-width') as HTMLInputElement;
+      const widthLabel = $('#vj-width-label')!;
+      width.addEventListener('input', () => {
+        const v = Math.max(0.1, Math.min(8, parseFloat(width.value || '0') || 0));
+        this.flowSettings.lineWidth = v;
+        widthLabel.textContent = v.toFixed(2);
+      });
+
+      const swirl = $('#vj-swirl') as HTMLInputElement;
+      const swirlLabel = $('#vj-swirl-label')!;
+      swirl.addEventListener('input', () => {
+        const v = Math.max(0, Math.min(2, parseFloat(swirl.value || '0') || 0));
+        this.flowSettings.swirlAmount = v;
+        swirlLabel.textContent = v.toFixed(2);
+      });
+
+      const edge = $('#vj-edge') as HTMLInputElement;
+      edge.addEventListener('change', () => { this.flowSettings.edgeOverlay = !!edge.checked; });
+
+      const color = $('#vj-color') as HTMLSelectElement;
+      color.addEventListener('change', () => { this.flowSettings.colorMode = color.value as FlowSettings['colorMode']; });
+
+      const sprites = $('#vj-sprites') as HTMLInputElement;
+      const spriteCount = $('#vj-spritecount') as HTMLInputElement;
+      const spriteCountLabel = $('#vj-spritecount-label')!;
+      const spriteSz = $('#vj-spritesz') as HTMLInputElement;
+      const spriteSzLabel = $('#vj-spritesz-label')!;
+      const spriteBurst = $('#vj-spriteburst') as HTMLInputElement;
+
+      const refreshSpriteEnables = () => {
+        const en = !!this.flowSettings.spritesEnabled;
+        spriteCount.disabled = !en; spriteSz.disabled = !en; spriteBurst.disabled = !en;
+      };
+
+      sprites.addEventListener('change', () => {
+        this.flowSettings.spritesEnabled = !!sprites.checked;
+        this.ensureFlowSprites();
+        refreshSpriteEnables();
+      });
+
+      spriteCount.addEventListener('input', () => {
+        const v = Math.max(0, Math.min(96, parseInt(spriteCount.value || '0', 10) || 0));
+        this.flowSettings.spriteCount = v | 0;
+        spriteCountLabel.textContent = String(this.flowSettings.spriteCount);
+        this.ensureFlowSprites();
+      });
+
+      spriteSz.addEventListener('input', () => {
+        const v = Math.max(1, Math.min(50, parseInt(spriteSz.value || '0', 10) || 0));
+        this.flowSettings.spriteScalePct = v | 0;
+        spriteSzLabel.textContent = `${this.flowSettings.spriteScalePct}%`;
+      });
+
+      spriteBurst.addEventListener('change', () => { this.flowSettings.spriteBeatBurst = !!spriteBurst.checked; });
+
+      $('#vj-reset')!.addEventListener('click', () => {
+        this.flowSettings = {
+          particleCount: 1200, speed: 36, lineWidth: 1.2, colorMode: 'palette', edgeOverlay: false, swirlAmount: 0.6,
+          spritesEnabled: false, spriteCount: 18, spriteScalePct: 6, spriteBeatBurst: true
+        };
+        particles.value = String(this.flowSettings.particleCount); particles.dispatchEvent(new Event('input'));
+        speed.value = String(this.flowSettings.speed); speed.dispatchEvent(new Event('input'));
+        width.value = String(this.flowSettings.lineWidth); width.dispatchEvent(new Event('input'));
+        swirl.value = String(this.flowSettings.swirlAmount); swirl.dispatchEvent(new Event('input'));
+        edge.checked = this.flowSettings.edgeOverlay;
+        color.value = this.flowSettings.colorMode;
+        sprites.checked = this.flowSettings.spritesEnabled;
+        spriteCount.value = String(this.flowSettings.spriteCount); spriteCount.dispatchEvent(new Event('input'));
+        spriteSz.value = String(this.flowSettings.spriteScalePct); spriteSz.dispatchEvent(new Event('input'));
+        spriteBurst.checked = this.flowSettings.spriteBeatBurst;
+        refreshSpriteEnables();
+      });
+
+      $('#vj-close')!.addEventListener('click', () => this.togglePanel('vj', false));
+
+      refreshSpriteEnables();
+    });
+    this.togglePanel('vj', undefined);
   }
 
   setFeaturesEnabled(on: boolean) {
@@ -669,7 +808,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.ctx.fillText(curName, W - 10, H - 10);
   }
 
-  // Beat and downbeat scheduling (no hooks for removed scenes)
+  // Beat and downbeat scheduling
   private updateBeat(time: number) {
     this.beatActive = false;
     while (time >= this.nextBeatTime) {
@@ -719,22 +858,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     if (is('Stained Glass Voronoi')) this.onDownbeat_Stained();
     if (is('Emo Slashes')) this.onDownbeat_EmoSlashes();
 
-    // Auto scene random pick (removed the four scenes)
     if (this.autoSceneOnDownbeat && cur === 'Auto' && !this.nextSceneName && this.crossfadeT <= 0) {
-      const choices = [
-        'Lyric Lines',
-        'Beat Ball',
-        'Flow Field',
-        'Neon Bars',
-        'Stained Glass Voronoi',
-        'Emo Slashes'
-      ];
+      const choices = ['Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars', 'Stained Glass Voronoi', 'Emo Slashes'];
       const pick = choices[(Math.random() * choices.length) | 0];
       this.requestScene(pick);
     }
   }
 
-  // Scene switch (no routes for removed scenes)
+  // Scene switch
   private drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number, name: string) {
     switch (name) {
       case 'Lyric Lines': this.drawLyricLines(ctx, w, h, time, dt); break;
@@ -748,7 +879,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  private drawAuto(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
+  private drawAuto(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, _dt: number) {
     const energy = this.features.energy ?? 0.5;
     const bpm = this.features.tempo ?? 120;
     const pulse = (Math.sin(time * (bpm / 60) * Math.PI * 2) * 0.5 + 0.5) ** (2 - energy);
@@ -777,7 +908,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     }
   }
 
-  // Particles-based lyric lines
+  // Lyric Lines
   private drawLyricLines(ctx: CanvasRenderingContext2D, w: number, h: number, _time: number, dt: number) {
     if (!this.textField || this.lastTextW !== w || this.lastTextH !== h) {
       this.prepareTextField(this.lyricText, w, h);
@@ -831,35 +962,32 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.lyricAgents[idx].target = (Math.random() * this.textPoints.length) | 0;
     }
   }
- private prepareTextField(text: string, w: number, h: number) {
-  this.lastTextW = w; this.lastTextH = h;
-  const sf = Math.min(w * 0.8, h * 0.32);
-  if (!this.textField) this.textField = document.createElement('canvas');
-  this.textField.width = w; this.textField.height = h;
+  private prepareTextField(text: string, w: number, h: number) {
+    this.lastTextW = w; this.lastTextH = h;
+    const sf = Math.min(w * 0.8, h * 0.32);
+    if (!this.textField) this.textField = document.createElement('canvas');
+    this.textField.width = w; this.textField.height = h;
+    const tctx = this.textField.getContext('2d', { willReadFrequently: true } as any)!;
+    tctx.clearRect(0, 0, w, h);
+    tctx.fillStyle = '#fff';
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
+    tctx.fillText(text || 'DWDW', w / 2, h / 2);
 
-  const tctx = this.textField.getContext('2d') as CanvasRenderingContext2D | null;
-  if (!tctx) return;
-
-  tctx.clearRect(0, 0, w, h);
-  tctx.fillStyle = '#fff';
-  tctx.textAlign = 'center';
-  tctx.textBaseline = 'middle';
-  tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
-  tctx.fillText(text || 'DWDW', w / 2, h / 2);
-
-  const img = tctx.getImageData(0, 0, w, h).data;
-  const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
-  const pts: Array<{ x: number; y: number }> = [];
-  for (let yy = 0; yy < h; yy += step) {
-    for (let xx = 0; xx < w; xx += step) {
-      const i = (yy * w + xx) * 4 + 3;
-      if (img[i] > 32) pts.push({ x: xx, y: yy });
+    const img = tctx.getImageData(0, 0, w, h).data;
+    const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let yy = 0; yy < h; yy += step) {
+      for (let xx = 0; xx < w; xx += step) {
+        const i = (yy * w + xx) * 4 + 3;
+        if (img[i] > 32) pts.push({ x: xx, y: yy });
+      }
     }
+    const maxPts = 900;
+    this.textPoints = pts.length > maxPts ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts) : pts;
+    this.lyricAgents = [];
   }
-  const maxPts = 900;
-  this.textPoints = pts.length > maxPts ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts) : pts;
-  this.lyricAgents = [];
-}
   private initLyricAgents() {
     const n = Math.min(900, this.textPoints.length);
     this.lyricAgents = new Array(n).fill(0).map(() => {
@@ -935,17 +1063,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const size = 2 + Math.random() * 4 * (1 + power);
       const hue = (baseHue + (Math.random() - 0.5) * 60 + valence * 60) % 360;
       this.confetti.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd - 40,
-        life: 0,
-        max: 0.8 + Math.random() * 1.2,
-        hue, size
+        x: Math.random() * W, y: Math.random() * H,
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 40,
+        life: 0, max: 0.8 + Math.random() * 1.2, hue, size
       });
     }
   }
-  private drawConfetti(ctx: CanvasRenderingContext2D, W: number, H: number, dt: number) {
+  private drawConfetti(ctx: CanvasRenderingContext2D, _W: number, _H: number, dt: number) {
     if (!this.confetti.length) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -1007,10 +1131,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     this.flowImageCanvas = document.createElement('canvas');
     this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
-    this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
-    if (this.flowImageCtx) {
-  this.flowImageCtx.putImageData(imgData, 0, 0);
-}
+    this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as any)!;
+    this.flowImageCtx.putImageData(imgData, 0, 0);
 
     const data = imgData.data;
     const lum = new Float32Array(w * h);
@@ -1091,15 +1213,8 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     while (this.flowParticles.length < target) {
       const hue = this.pickFlowHue(this.flowParticles.length);
       this.flowParticles.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        px: 0, py: 0,
-        vx: 0, vy: 0,
-        life: 0,
-        ttl: 2 + Math.random() * 5,
-        hue,
-        size: this.reduceMotion ? 0.7 : 1.1,
-        alpha: 0.5 + Math.random() * 0.5
+        x: Math.random() * W, y: Math.random() * H, px: 0, py: 0, vx: 0, vy: 0,
+        life: 0, ttl: 2 + Math.random() * 5, hue, size: this.reduceMotion ? 0.7 : 1.1, alpha: 0.5 + Math.random() * 0.5
       });
     }
     if (this.flowParticles.length > target) this.flowParticles.length = target;
@@ -1111,14 +1226,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const target = this.flowSettings.spritesEnabled ? this.flowSettings.spriteCount : 0;
     while (this.flowSprites.length < target) {
       this.flowSprites.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        vx: 0, vy: 0,
-        angle: 0,
-        life: 0,
-        ttl: 3 + Math.random() * 6,
-        scale: 1,
-        alpha: 0.9
+        x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0, angle: 0, life: 0, ttl: 3 + Math.random() * 6, scale: 1, alpha: 0.9
       });
     }
     if (this.flowSprites.length > target) this.flowSprites.length = target;
@@ -1321,6 +1429,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const angle = Math.atan2(ny, nx);
 
     const t = time * 0.2;
+    theSwirl: {
+      // slight variation to avoid aliasing
+    }
     const twist = Math.sin(angle * 3 + t) * 0.5 + Math.cos(r * 6 - t) * 0.5;
     const dir = angle + Math.PI / 2 + twist * 0.5;
 
@@ -1545,31 +1656,19 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.sgLastW = 0; this.sgLastH = 0;
     this.ensureStained(w, h);
   }
-  private onBeat_Stained() {
-    this.sgPulse = Math.min(1, this.sgPulse + 0.5);
-  }
+  private onBeat_Stained() { this.sgPulse = Math.min(1, this.sgPulse + 0.5); }
   private onDownbeat_Stained() {
     this.sgPulse = 1;
     this.spawnSparks(14 + Math.round((this.features.energy ?? 0.5) * 18));
     this.sgDownbeatCounter++;
-    if (this.sgDownbeatCounter % 2 === 0) {
-      this.reseedStained(this.bufferA.width, this.bufferA.height);
-    }
+    if (this.sgDownbeatCounter % 2 === 0) this.reseedStained(this.bufferA.width, this.bufferA.height);
   }
   private drawStainedGlassVoronoi(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
-    try {
-      this.ensureStained(w, h);
-    } catch {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, w, h);
-      return;
-    }
+    try { this.ensureStained(w, h); } catch { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); return; }
 
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
-    bg.addColorStop(0, '#07080b');
-    bg.addColorStop(1, '#0a0a10');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
+    bg.addColorStop(0, '#07080b'); bg.addColorStop(1, '#0a0a10');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
 
     this.sgPulse = Math.max(0, this.sgPulse - dt * 2.0);
 
@@ -1636,13 +1735,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const t = Math.random();
       const x = a.x + (b.x - a.x) * t;
       const y = a.y + (b.y - a.y) * t;
-      this.sgSparkles.push({
-        x, y,
-        life: 0,
-        max: 0.5 + Math.random() * 0.7,
-        hue: (hue + (Math.random() - 0.5) * 40) % 360,
-        size: 1.5 + Math.random() * 2.5
-      });
+      this.sgSparkles.push({ x, y, life: 0, max: 0.5 + Math.random() * 0.7, hue: (hue + (Math.random() - 0.5) * 40) % 360, size: 1.5 + Math.random() * 2.5 });
     }
   }
   private drawSparks(ctx: CanvasRenderingContext2D, _w: number, _h: number, dt: number) {
@@ -1673,17 +1766,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const size = (this.reduceMotion ? 5 : 8) + Math.random() * (this.reduceMotion ? 6 : 10);
       const hueBase = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
       this.emoPetals.push({
-        x: Math.random() * w,
-        y: Math.random() * h,
+        x: Math.random() * w, y: Math.random() * h,
         vx: (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5)),
         vy: (10 + Math.random() * 40) * (0.7 + (this.features.energy ?? 0.5)),
-        rot: Math.random() * Math.PI * 2,
-        vr: (-1 + Math.random() * 2) * 0.8,
-        size,
-        hue: (hueBase + (Math.random() - 0.5) * 40) % 360,
-        alpha: 0.6 + Math.random() * 0.4,
-        life: 0,
-        ttl: 6 + Math.random() * 10
+        rot: Math.random() * Math.PI * 2, vr: (-1 + Math.random() * 2) * 0.8,
+        size, hue: (hueBase + (Math.random() - 0.5) * 40) % 360, alpha: 0.6 + Math.random() * 0.4,
+        life: 0, ttl: 6 + Math.random() * 10
       });
     }
     if (this.emoPetals.length > target) this.emoPetals.length = target;
@@ -1695,24 +1783,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const angle = (Math.random() < 0.5 ? -1 : 1) * (Math.PI / 4 + Math.random() * Math.PI / 8);
       const len = (Math.min(this.bufferA.width, this.bufferA.height) * (0.35 + energy * 0.35)) * (0.6 + Math.random() * 0.6);
       const width = (6 + energy * 10) * (this.reduceMotion ? 0.7 : 1);
-      this.emoSlashes.push({
-        x: centerX, y: centerY,
-        angle, life: 0, max: 0.5 + Math.random() * 0.35,
-        len, width,
-        hue: (hue + (Math.random() - 0.5) * 24) % 360
-      });
+      this.emoSlashes.push({ x: centerX, y: centerY, angle, life: 0, max: 0.5 + Math.random() * 0.35, len, width, hue: (hue + (Math.random() - 0.5) * 24) % 360 });
     }
   }
   private spawnEmoRipple(centerX: number, centerY: number) {
     const hue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
     const maxR = Math.hypot(this.bufferA.width, this.bufferA.height) * 0.6;
-    this.emoRipples.push({
-      x: centerX, y: centerY,
-      r: 10, vr: maxR / (this.reduceMotion ? 1.4 : 0.9),
-      life: 0,
-      max: 0.6,
-      hue
-    });
+    this.emoRipples.push({ x: centerX, y: centerY, r: 10, vr: maxR / (this.reduceMotion ? 1.4 : 0.9), life: 0, max: 0.6, hue });
   }
   private onBeat_EmoSlashes() {
     const cx = this.bufferA.width * (0.3 + Math.random() * 0.4);
@@ -1740,18 +1817,13 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private drawEmoSlashes(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, dt: number) {
     if (this.emoBgImg) {
       const img = this.emoBgImg;
-      const cw = img.naturalWidth;
-      const ch = img.naturalHeight;
-      const targetAR = w / h;
-      const srcAR = cw / ch;
+      const cw = img.naturalWidth, ch = img.naturalHeight;
+      const targetAR = w / h, srcAR = cw / ch;
       let sx = 0, sy = 0, sw = cw, sh = ch;
-      if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; }
-      else { sh = cw / targetAR; sy = (ch - sh) / 2; }
+      if (srcAR > targetAR) { sw = ch * targetAR; sx = (cw - sw) / 2; } else { sh = cw / targetAR; sy = (ch - sh) / 2; }
       const zoom = 1.05 + (this.features.energy ?? 0.5) * 0.05;
-      const dw = w * zoom;
-      const dh = h * zoom;
-      const dx = (w - dw) / 2;
-      const dy = (h - dh) / 2;
+      const dw = w * zoom, dh = h * zoom;
+      const dx = (w - dw) / 2, dy = (h - dh) / 2;
 
       const oldFilter = (ctx as any).filter ?? 'none';
       try { (ctx as any).filter = 'blur(10px) saturate(1.05) brightness(0.65)'; } catch {}
@@ -1760,18 +1832,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
       ctx.globalAlpha = 0.35;
       const vg = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
-      vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(0,0,0,0.9)');
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, w, h);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.9)');
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     } else {
       const baseHue = this.keyHueTarget ?? rgbToHsl(hexToRgb(this.palette.dominant)!).h;
       const g = ctx.createLinearGradient(0, 0, w, h);
       g.addColorStop(0, `hsla(${(baseHue + 220) % 360}, 35%, 8%, 1)`);
       g.addColorStop(1, `hsla(${(baseHue + 260) % 360}, 30%, 10%, 1)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     }
 
     ctx.globalAlpha = 0.12;
@@ -1782,9 +1851,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const rx = (Math.sin(fogT * 0.03 + i * 2.1) * 0.5 + 0.5) * w;
       const ry = (Math.cos(fogT * 0.025 + i * 1.7) * 0.5 + 0.5) * h;
       const rr = Math.min(w, h) * (0.35 + i * 0.22);
-      ctx.beginPath();
-      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(rx, ry, rr, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
 
@@ -1798,18 +1865,15 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       const p = this.emoPetals[i];
       p.life += dt;
       if (p.life >= p.ttl) {
-        p.x = Math.random() * w;
-        p.y = -10;
+        p.x = Math.random() * w; p.y = -10;
         p.vx = (-10 + Math.random() * 20) * (0.6 + (this.features.danceability ?? 0.5));
         p.vy = (10 + Math.random() * 40) * (0.7 + (this.features.energy ?? 0.5));
-        p.life = 0;
-        p.ttl = 6 + Math.random() * 10;
+        p.life = 0; p.ttl = 6 + Math.random() * 10;
       }
 
       p.vy += gravity * dt * 0.02;
       p.vx += (Math.sin(time * 1.4 + i) * drift * 0.02) * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
       p.rot += p.vr * dt;
 
       if (p.y > h + 12) { p.y = -12; p.x = Math.random() * w; }
@@ -1960,146 +2024,9 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     ctx.globalAlpha = 0.25;
     const vg2 = ctx.createRadialGradient(w * 0.5, h * 0.55, Math.min(w, h) * 0.4, w * 0.5, h * 0.5, Math.max(w, h) * 0.9);
-    vg2.addColorStop(0, 'rgba(0,0,0,0)');
-    vg2.addColorStop(1, 'rgba(0,0,0,0.9)');
-    ctx.fillStyle = vg2;
-    ctx.fillRect(0, 0, w, h);
+    vg2.addColorStop(0, 'rgba(0,0,0,0)'); vg2.addColorStop(1, 'rgba(0,0,0,0.9)');
+    ctx.fillStyle = vg2; ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
-  }
-
-  // Voronoi core
-  private computeVoronoi(sites: SGSite[], w: number, h: number): SGCell[] {
-    const B = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    const cells: SGCell[] = [];
-
-    for (let i = 0; i < sites.length; i++) {
-      const si = sites[i];
-      let poly = B.slice();
-
-      for (let j = 0; j < sites.length; j++) {
-        if (i === j) continue;
-        const sj = sites[j];
-
-        const mx = (si.x + sj.x) / 2;
-        the: {
-          const my = (si.y + sj.y) / 2;
-          const sx = sj.x - si.x;
-          const sy = sj.y - si.y;
-          poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
-        }
-        if (poly.length === 0) break;
-      }
-
-      if (poly.length >= 3) {
-        let cx = 0, cy = 0;
-        for (const p of poly) { cx += p.x; cy += p.y; }
-        cx /= poly.length; cy /= poly.length;
-
-        let radius = 0;
-        for (const p of poly) {
-          const d = Math.hypot(p.x - cx, p.y - cy);
-          if (d > radius) radius = d;
-        }
-
-        cells.push({ pts: poly, cx, cy, color: si.color, radius });
-      }
-    }
-
-    return cells;
-  }
-
-  // Lyrics fetching
-  private async refetchLyricsForCurrentTrack() {
-    if (!this.lastTrackId) return;
-    try {
-      const pb = await (this.api as any).getCurrentPlaybackCached?.().catch(() => null);
-      const tr = (pb?.item && (pb.item as any).type === 'track') ? pb!.item as SpotifyApi.TrackObjectFull : null;
-      if (tr) return this.fetchLyricsLRCLIB(tr);
-    } catch {}
-  }
-  private async fetchLyricsLRCLIB(track: SpotifyApi.TrackObjectFull) {
-    try {
-      const trackName = track.name || '';
-      const artistName = (track.artists || []).map(a => a.name).join(', ');
-      const albumName = track.album?.name || '';
-      const durationSec = Math.max(1, Math.round((track.duration_ms || 0) / 1000));
-
-      const params = new URLSearchParams();
-      if (trackName) params.set('track_name', trackName);
-      if (artistName) params.set('artist_name', artistName);
-      if (albumName) params.set('album_name', albumName);
-      if (durationSec) params.set('duration', String(durationSec));
-
-      const url = `https://lrclib.net/api/search?${params.toString()}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) throw new Error(`LRCLIB ${res.status}`);
-      const data = await res.json();
-
-      let synced = '';
-      let plain = '';
-      if (Array.isArray(data) && data.length) {
-        const best = data.find((d: any) => d?.syncedLyrics) ?? data[0];
-        synced = best?.syncedLyrics || '';
-        plain = best?.plainLyrics || '';
-      }
-
-      let state: LyricsState | null = null;
-      if (synced && typeof synced === 'string') {
-        const lines = parseLRC(synced);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: true, lines, updatedAt: Date.now() };
-      } else if (plain && typeof plain === 'string') {
-        const lines = parsePlainLyrics(plain, durationSec);
-        state = { provider: 'lrclib', trackId: track.id || null, synced: false, lines, updatedAt: Date.now() };
-      }
-
-      this.lyrics = state;
-      this.currentLyricIndex = -1;
-    } catch {
-      this.lyrics = null;
-      this.currentLyricIndex = -1;
-    }
-  }
-  private updateCurrentLyricLine() {
-    if (!this.lyrics || !this.lyrics.lines.length) return;
-    const t = this.playbackMs / 1000;
-    const lines = this.lyrics.lines;
-
-    let lo = 0, hi = lines.length - 1, idx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (t < lines[mid].start) hi = mid - 1;
-      else if (t >= lines[mid].end) lo = mid + 1;
-      else { idx = mid; break; }
-    }
-
-    if (idx !== -1 && idx !== this.currentLyricIndex) {
-      this.currentLyricIndex = idx;
-      const text = lines[idx].text || '';
-      if (text.trim()) this.setLyricText(text);
-    }
-  }
-  private startPlaybackPolling() {
-    const tick = async () => {
-      try {
-        const pb = await (this.api as any).getCurrentPlaybackCached?.();
-        if (pb) {
-          this.hadPlaybackPoll = true;
-          this.playbackIsPlaying = !!pb.is_playing;
-          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
-
-          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
-          if (tr && tr.id && tr.id !== this.lastTrackId) {
-            this.onTrack(tr).catch(() => {});
-          }
-
-          const drift = Math.abs(ms - this.playbackMs);
-          if (drift > 750) this.playbackMs = ms;
-        }
-      } catch {}
-    };
-    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
-    this.pbPollTimer = setInterval(tick, 1000);
-    tick().catch(() => {});
   }
 
   // Lyrics overlay
@@ -2159,12 +2086,14 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     const bx = cx - boxW / 2;
     const topY = by - boxH + Math.round(padY * 0.35);
 
+    // Background plate
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#000';
     roundRect(ctx, bx, topY, boxW, boxH, Math.min(16, Math.round(fontPx * 0.35)));
     ctx.fill();
     ctx.globalAlpha = 1;
 
+    // Text stroke + fill
     ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.08));
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
@@ -2172,6 +2101,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     ctx.strokeText(text, cx, by);
     ctx.fillText(text, cx, by);
 
+    // Per-line progress highlight
     if (this.lyrics?.synced) {
       const baseHue =
         this.keyHueTarget != null && this.keyColorEnabled
@@ -2195,6 +2125,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       ctx.fillText(text, cx, by);
       ctx.restore();
 
+      // Underline progress bar
       const barY = by + Math.round(fontPx * 0.18);
       const barR = Math.round(Math.min(10, fontPx * 0.18));
       const barPad = Math.round(padX * 0.4);
@@ -2279,30 +2210,73 @@ export class VisualDirector extends Emitter<DirectorEvents> {
   private closeAllPanels() {
     this.togglePanel('quality', false);
     this.togglePanel('access', false);
+    this.togglePanel('vj', false);
   }
 
-  // Click-only wiring: only wire to explicit buttons, no keyboard shortcuts
+  // Click-only wiring for panel buttons present in index.html
   private autowirePanelButtons() {
     const wire = () => {
       const btnQ = document.querySelector<HTMLElement>('#btn-quality');
       const btnA = document.querySelector<HTMLElement>('#btn-accessibility');
+      const btnV = document.querySelector<HTMLElement>('#btn-vj');
 
-      if (btnQ) {
-        btnQ.addEventListener('click', (e) => { e.preventDefault(); this.toggleQualityPanel(); });
-      }
-      if (btnA) {
-        btnA.addEventListener('click', (e) => { e.preventDefault(); this.toggleAccessibilityPanel(); });
-      }
+      if (btnQ) btnQ.addEventListener('click', (e) => { e.preventDefault(); this.toggleQualityPanel(); });
+      if (btnA) btnA.addEventListener('click', (e) => { e.preventDefault(); this.toggleAccessibilityPanel(); });
+      if (btnV) btnV.addEventListener('click', (e) => { e.preventDefault(); this.toggleVJPanel(); });
     };
 
     // Try immediately
     wire();
 
-    // Watch toolbar changes in case UI mounts later
+    // Watch DOM for UI that mounts later
     try {
       this.controlsObserver = new MutationObserver(() => wire());
       this.controlsObserver.observe(document.body, { childList: true, subtree: true });
     } catch {}
+  }
+
+  // Lyrics timeline updates
+  private updateCurrentLyricLine() {
+    if (!this.lyrics || !this.lyrics.lines.length) return;
+    const t = this.playbackMs / 1000;
+    const lines = this.lyrics.lines;
+
+    let lo = 0, hi = lines.length - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < lines[mid].start) hi = mid - 1;
+      else if (t >= lines[mid].end) lo = mid + 1;
+      else { idx = mid; break; }
+    }
+
+    if (idx !== -1 && idx !== this.currentLyricIndex) {
+      this.currentLyricIndex = idx;
+      const text = lines[idx].text || '';
+      if (text.trim()) this.setLyricText(text);
+    }
+  }
+  private startPlaybackPolling() {
+    const tick = async () => {
+      try {
+        const pb = await (this.api as any).getCurrentPlaybackCached?.();
+        if (pb) {
+          this.hadPlaybackPoll = true;
+          this.playbackIsPlaying = !!pb.is_playing;
+          const ms = typeof pb.progress_ms === 'number' ? pb.progress_ms : this.playbackMs;
+
+          const tr = (pb.item && (pb.item as any).type === 'track') ? pb.item as SpotifyApi.TrackObjectFull : null;
+          if (tr && tr.id && tr.id !== this.lastTrackId) {
+            this.onTrack(tr).catch(() => {});
+          }
+
+          const drift = Math.abs(ms - this.playbackMs);
+          if (drift > 750) this.playbackMs = ms;
+        }
+      } catch {}
+    };
+    if (this.pbPollTimer) clearInterval(this.pbPollTimer);
+    this.pbPollTimer = setInterval(tick, 1000);
+    tick().catch(() => {});
   }
 
   // Utilities
@@ -2369,7 +2343,7 @@ function angularDelta(a: number, b: number) {
   return d;
 }
 
-// Color helpers (ensure these exist to avoid ReferenceError)
+// Color helpers
 function hexToRgb(hex: string): RGB | null {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
   if (!m) return null;

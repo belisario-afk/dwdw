@@ -2,25 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>dwdw</title>
 
-    <!-- Production-safe stylesheet served from /public -->
+    <!-- Served from Vite public/ at /style.css -->
     <link rel="stylesheet" href="./style.css" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
 
     <!-- Build marker for cache-busting verification -->
     <meta name="build-version" content="2025-08-26-14" />
-    <!-- Proxy URL for TikTok feature (and exposed to window.TIKTOK_PROXY_URL) -->
     <meta name="tiktok-proxy" content="https://dwdw-7a4i.onrender.com" />
 
-    <!-- Inline preboot: ensures TIKTOK_PROXY_URL + intercepts Spotify audio-features before your bundle runs -->
+    <!-- Preboot: proxy URL + silence Spotify audio-features -->
     <script>
       (function () {
-        // Set TikTok proxy early
         try {
           var m = document.querySelector('meta[name="tiktok-proxy"]');
           var u = (m && m.getAttribute('content')) || 'https://dwdw-7a4i.onrender.com';
@@ -29,14 +24,11 @@
           try { localStorage.setItem('TIKTOK_PROXY_URL', u); } catch {}
         } catch {}
 
-        // Intercept Spotify audio-features (both fetch and XHR)
         try {
           var isAF = function (url) {
             return typeof url === 'string' && url.indexOf('https://api.spotify.com/v1/audio-features') === 0;
           };
-
           if (!window.__AUDIO_FEATURES_INTERCEPTED) {
-            // fetch
             var of = window.fetch && window.fetch.bind(window);
             if (of) {
               window.fetch = function (input, init) {
@@ -49,8 +41,6 @@
                 return of(input, init);
               };
             }
-
-            // XHR (safety net)
             var OX = window.XMLHttpRequest;
             if (OX) {
               window.XMLHttpRequest = function XHRProxy() {
@@ -59,7 +49,6 @@
                 var self = this;
                 this.onreadystatechange = null; this.onload = null; this.onerror = null;
                 this.readyState = 0; this.status = 0; this.responseText = ''; this.response = '';
-
                 this.open = function (m, u, a, user, pass) {
                   silenced = isAF(String(u || ''));
                   if (silenced) {
@@ -69,7 +58,6 @@
                   }
                   return xhr.open(m, u, a !== false, user, pass);
                 };
-
                 this.send = function (b) {
                   if (!silenced) return xhr.send(b);
                   setTimeout(function () {
@@ -81,12 +69,10 @@
                     if (typeof self.onload === 'function') { try { self.onload(); } catch {} }
                   }, 0);
                 };
-
                 this.setRequestHeader = function(){ if (!silenced) return xhr.setRequestHeader.apply(xhr, arguments); };
                 this.getAllResponseHeaders = function(){ return silenced ? '' : xhr.getAllResponseHeaders(); };
                 this.getResponseHeader = function(n){ return silenced ? null : xhr.getResponseHeader(n); };
                 this.abort = function(){ if (!silenced) return xhr.abort(); };
-
                 xhr.onreadystatechange = function () {
                   if (!silenced) {
                     try {
@@ -100,20 +86,18 @@
                 };
                 xhr.onload = function () { if (!silenced && typeof self.onload === 'function') { try { self.onload(); } catch {} } };
                 xhr.onerror = function () { if (!silenced && typeof self.onerror === 'function') { try { self.onerror(); } catch {} } };
-
                 Object.defineProperty(self, 'responseType', { get(){ return silenced ? '' : xhr.responseType; }, set(v){ if (!silenced) xhr.responseType = v; } });
                 Object.defineProperty(self, 'withCredentials', { get(){ return silenced ? false : xhr.withCredentials; }, set(v){ if (!silenced) xhr.withCredentials = v; } });
                 Object.defineProperty(self, 'timeout', { get(){ return silenced ? 0 : xhr.timeout; }, set(v){ if (!silenced) xhr.timeout = v; } });
               };
             }
-
             window.__AUDIO_FEATURES_INTERCEPTED = true;
           }
         } catch {}
       })();
     </script>
 
-    <!-- External preboot served from public/ so Vite won't try to bundle it -->
+    <!-- External preboot served from public/ -->
     <script src="/preboot.js?v=2025-08-26-14"></script>
 
     <style>
@@ -134,148 +118,35 @@
         --safe-bottom: env(safe-area-inset-bottom, 0px);
         --safe-left: env(safe-area-inset-left, 0px);
       }
-
-      html, body {
-        height: 100%;
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg);
-        font: var(--hud-font);
-        overflow: hidden;
-        -webkit-text-size-adjust: 100%;
-      }
-
-      #canvas-host {
-        position: fixed;
-        inset: 0;
-        overflow: hidden;
-      }
-
+      html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: var(--hud-font); overflow: hidden; -webkit-text-size-adjust: 100%; }
+      #canvas-host { position: fixed; inset: 0; overflow: hidden; }
       .toolbar {
-        position: fixed;
-        top: max(12px, var(--safe-top));
-        left: max(12px, var(--safe-left));
-        right: max(12px, var(--safe-right));
-        margin: 0 auto;
-
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
-
-        background: var(--hud-surface);
-        backdrop-filter: blur(12px) saturate(120%);
-        border: var(--hud-border);
-        border-radius: var(--hud-radius);
-        box-shadow: var(--hud-shadow);
-        z-index: 9999;
-        pointer-events: auto;
-        -webkit-tap-highlight-color: transparent;
+        position: fixed; top: max(12px, var(--safe-top)); left: max(12px, var(--safe-left)); right: max(12px, var(--safe-right)); margin: 0 auto;
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px;
+        background: var(--hud-surface); backdrop-filter: blur(12px) saturate(120%); border: var(--hud-border); border-radius: var(--hud-radius); box-shadow: var(--hud-shadow);
+        z-index: 9999; pointer-events: auto; -webkit-tap-highlight-color: transparent;
       }
-
-      .left, .center, .right {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }
-
-      .left  { flex: 1 1 320px; justify-content: flex-start; }
-      .center{ flex: 1 1 360px; justify-content: center; }
-      .right { flex: 1 1 320px; justify-content: flex-end; }
-
-      .left > *, .center > *, .right > * {
-        flex: 0 0 auto;
-        min-width: 0;
-      }
-
-      button,
-      select,
-      input[type="range"] {
-        color: var(--fg);
-        background: #1a1a21;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
-        padding: 6px 10px;
-      }
-      button { cursor: pointer; }
-      button:disabled,
-      select:disabled,
-      input:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-
-      .hidden { display: none !important; }
-      .label { color: var(--muted); white-space: nowrap; }
-      .label--long { color: var(--muted); white-space: nowrap; }
-      .spacer { width: 8px; }
-      .grow { flex: 1 1 auto; }
-      #seek { width: min(38vw, 520px); }
-      #volume { width: 110px; }
-
-      #panels {
-        position: fixed;
-        right: 0;
-        top: 0;
-        bottom: 0;
-        pointer-events: none;
-        z-index: 200;
-      }
-      #panels .panel {
-        pointer-events: auto;
-        background: #121219;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 10px;
-        color: var(--fg);
-      }
-      #panels .panel.hidden { display: none; }
-
-      #screensaver {
-        position: fixed;
-        inset: 0;
-        background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8));
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 300ms ease;
-        z-index: 150;
-      }
+      .left, .center, .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .left{ flex:1 1 320px; justify-content:flex-start; } .center{ flex:1 1 360px; justify-content:center; } .right{ flex:1 1 320px; justify-content:flex-end; }
+      button, select, input[type="range"] { color: var(--fg); background: #1a1a21; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 10px; }
+      button { cursor: pointer; } button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+      .hidden { display: none !important; } .label { color: var(--muted); white-space: nowrap; } .label--long { color: var(--muted); white-space: nowrap; }
+      .spacer { width: 8px; } .grow { flex: 1 1 auto; } #seek { width: min(38vw, 520px); } #volume { width: 110px; }
+      #panels { position: fixed; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 200; }
+      #panels .panel { pointer-events: auto; background: #121219; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; color: var(--fg); }
+      #screensaver { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.8)); opacity: 0; pointer-events: none; transition: opacity 300ms ease; z-index: 150; }
       #screensaver.active { opacity: 1; }
-
       @media (max-width: 768px) {
-        .toolbar {
-          top: auto;
-          bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left));
-          right: max(10px, var(--safe-right));
-          justify-content: center;
-          gap: 8px;
-          padding: 10px;
-          border-radius: calc(var(--hud-radius) + 2px);
-        }
-        .center { order: 1; justify-content: center; flex: 1 1 100%; }
-        .left   { order: 2; justify-content: center; flex: 1 1 100%; }
-        .right  { order: 3; justify-content: center; flex: 1 1 100%; }
-        .left, .center, .right { flex-wrap: wrap; gap: 8px; }
-        #seek { width: 100%; max-width: 100%; }
-        #volume { width: min(55vw, 240px); }
+        .toolbar { top: auto; bottom: max(10px, var(--safe-bottom)); left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right)); justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px); }
+        .center { order: 1; justify-content: center; flex: 1 1 100%; } .left { order: 2; justify-content: center; flex: 1 1 100%; } .right { order: 3; justify-content: center; flex: 1 1 100%; }
+        .left, .center, .right { flex-wrap: wrap; gap: 8px; } #seek { width: 100%; max-width: 100%; } #volume { width: min(55vw, 240px); }
         .label--long, #gpu-label, #fps-label { display: none !important; }
       }
-
-      @media (max-width: 380px) {
-        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
-        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
-      }
+      @media (max-width: 380px) { .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; } #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; } }
+      @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
     </style>
 
-    <!-- Vite entry: dev points to source; prod will rewrite to built assets -->
+    <!-- Vite entry -->
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
@@ -341,6 +212,7 @@
     </script>
     <script src="https://sdk.scdn.co/spotify-player.js" async></script>
 
+    <!-- Fonts control -->
     <script>
       (function () {
         const FONTS = {
@@ -352,29 +224,23 @@
         };
         const KEY = 'lyrics-font-label';
         const select = document.getElementById('lyrics-font');
-
         function apply(label) {
           const stack = FONTS[label] || FONTS['Bebas Neue'];
           document.documentElement.style.setProperty('--lyrics-font', stack);
           try { localStorage.setItem(KEY, label); } catch (_) {}
         }
-
         try {
           const saved = localStorage.getItem(KEY);
           if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
-            select.value = saved;
-            apply(saved);
-          } else {
-            apply(select.value);
-          }
-        } catch (_) {
-          apply(select.value);
-        }
-
+            select.value = saved; apply(saved);
+          } else { apply(select.value); }
+        } catch (_) { apply(select.value); }
         select.addEventListener('change', (e) => apply(e.target.value));
       })();
+    </script>
 
-      // Ensure Scene selector drives the VisualDirector (click-only wiring for panels)
+    <!-- Wiring: scene select, panel buttons (click-only) -->
+    <script>
       (function () {
         var wired = false;
         function wire() {
@@ -397,34 +263,29 @@
           if (btnA && typeof d.toggleAccessibilityPanel === 'function') {
             btnA.addEventListener('click', function (ev) { ev.preventDefault(); d.toggleAccessibilityPanel(); });
           }
+          var btnV = document.getElementById('btn-vj');
+          if (btnV && typeof d.toggleVJPanel === 'function') {
+            btnV.addEventListener('click', function (ev) { ev.preventDefault(); d.toggleVJPanel(); });
+          }
           var btnX = document.getElementById('btn-crossfade');
           if (btnX && typeof d.crossfadeNow === 'function') {
             btnX.addEventListener('click', function (ev) { ev.preventDefault(); d.crossfadeNow(); });
           }
         }
         wire();
-        var t = setInterval(function () {
-          if (window.__director) { wire(); clearInterval(t); }
-        }, 300);
+        var t = setInterval(function () { if (window.__director) { wire(); clearInterval(t); } }, 300);
         window.addEventListener('load', wire);
       })();
 
-      // SCENE DROPDOWN SANITIZER: only allow the supported list, remove any others
+      // Scene dropdown sanitizer: allowlist only
       (function () {
         var ALLOWED = [
-          'Auto',
-          'Lyric Lines',
-          'Beat Ball',
-          'Flow Field',
-          'Neon Bars',
-          'Stained Glass Voronoi',
-          'Emo Slashes'
+          'Auto', 'Lyric Lines', 'Beat Ball', 'Flow Field', 'Neon Bars', 'Stained Glass Voronoi', 'Emo Slashes'
         ];
         function rebuildSceneOptions() {
           var sel = document.getElementById('scene-select');
           if (!sel) return;
           var cur = sel.value;
-          // Rebuild from allowlist
           sel.innerHTML = '';
           ALLOWED.forEach(function (name) {
             var opt = document.createElement('option');
@@ -439,18 +300,12 @@
           if (!sel) return;
           var changed = false;
           Array.from(sel.options).forEach(function (o) {
-            if (ALLOWED.indexOf(o.value) < 0) {
-              o.remove();
-              changed = true;
-            }
+            if (ALLOWED.indexOf(o.value) < 0) { o.remove(); changed = true; }
           });
           if (changed && ALLOWED.indexOf(sel.value) < 0) sel.value = 'Auto';
         }
-        // Run immediately and on load
         rebuildSceneOptions();
         window.addEventListener('load', rebuildSceneOptions);
-
-        // Guard against other code adding options later
         var sel = document.getElementById('scene-select');
         if (sel && 'MutationObserver' in window) {
           var mo = new MutationObserver(pruneUnknown);
