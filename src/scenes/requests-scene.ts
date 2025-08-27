@@ -52,7 +52,7 @@ type Floater = {
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
-function rand(min: number, max: number) { return min + Math.random() * (max - min); }
+function rand(min: number, max: number) { return min + Math.random() * (max - min) ; }
 
 function normalizePayload(raw: any): { base: SongRequestPayload; trackRef?: string } {
   const base: SongRequestPayload = { ...raw };
@@ -98,7 +98,6 @@ function makeRequestsScene(): SceneDef {
   let lastSizeW = 0, lastSizeH = 0;
   let beatPulse = 0;
 
-  // Debug switch: enable with localStorage.setItem('songreq-debug','1')
   const DEBUG = (() => { try { return localStorage.getItem('songreq-debug') === '1'; } catch { return false; } })();
 
   // UI helpers
@@ -132,6 +131,10 @@ function makeRequestsScene(): SceneDef {
   function sampleColor() {
     const arr = ['#22cc88','#cc2288','#22aacc','#ffaa22','#8a2be2','#00d4ff'];
     return arr[(Math.random()*arr.length)|0];
+  }
+
+  function getDir(dMaybe: VisualDirector | undefined): VisualDirector | undefined {
+    return dMaybe || (window as any).__director;
   }
 
   async function addRequest(rawReq: any, director: VisualDirector) {
@@ -171,7 +174,6 @@ function makeRequestsScene(): SceneDef {
       awaitingMeta: false,
     };
 
-    // Load images via proxy (if configured) and safe loader
     if (base.pfpUrl) {
       const url = getProxiedUrl(base.pfpUrl);
       loadImageSafe(url).then(img => { if (img) flo.pfp = img; }).catch(() => {});
@@ -181,7 +183,6 @@ function makeRequestsScene(): SceneDef {
       loadImageSafe(url).then(img => { if (img) flo.album = img; }).catch(() => {});
     }
 
-    // Resolve missing title/cover via Spotify oEmbed if we have a track ID/URI/URL
     const tid = parseSpotifyTrackId(trackRef || base.uri || '');
     if ((!base.songTitle || !base.albumArtUrl) && tid) {
       flo.awaitingMeta = true;
@@ -211,13 +212,14 @@ function makeRequestsScene(): SceneDef {
     byId.set(id, flo);
   }
 
-  const onSongReq = (ev: Event, director?: VisualDirector) => {
+  const onSongReq = (ev: Event, directorMaybe?: VisualDirector) => {
     try {
       const ce = ev as CustomEvent<any>;
       const payload = ce.detail ?? null;
       if (DEBUG) console.log('[Requests Floaters] event', ev.type, payload);
-      if (!payload || !director) return;
-      addRequest(payload, director);
+      const dir = getDir(directorMaybe);
+      if (!payload || !dir) return;
+      addRequest(payload, dir);
     } catch (e) {
       if (DEBUG) console.warn('[Requests Floaters] onSongReq error', e);
     }
@@ -456,7 +458,7 @@ function makeRequestsScene(): SceneDef {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
     if (!m) return `rgba(34,204,136,${a})`;
     const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
-    return `rgba(${r},${b},${g},${a})`.replace(`${b},${g}`, `${g},${b}`); // keep order r,g,b
+    return `rgba(${r},${g},${b},${a})`;
   }
   function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     const rr = Math.min(r, w / 2, h / 2);
