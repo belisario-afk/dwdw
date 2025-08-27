@@ -14,6 +14,7 @@ import '@ui/responsive.css';
 import { initResponsiveHUD } from '@ui/responsive';
 import './scenes/requests-scene';
 import './boot/register-requests-scene'
+import './debug/requests-floaters-standalone';
 
 initResponsiveHUD();
 
