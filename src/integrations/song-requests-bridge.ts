@@ -1,5 +1,7 @@
-// Emits the UI floater immediately, then attempts to queue the track.
-// Also emits a result event you can listen to (songrequest:result).
+// Emits a floater immediately, then queues the track on Spotify.
+// If Spotify returns 404 (no active device), we auto-activate a device and retry once.
+
+import { ensureActiveDevice } from './spotify-devices';
 
 export type SongRequestPayload = {
   id?: string;
@@ -25,25 +27,6 @@ export function emitSongRequestResult(result: {
   window.dispatchEvent(new CustomEvent('songrequest:result', { detail: result }));
 }
 
-// Helper to compose a payload from a Spotify track object (if you already have it)
-export function songReqFromSpotifyTrack(
-  track: any,
-  viewer: { displayName: string; avatarUrl?: string; color?: string }
-): SongRequestPayload {
-  const artist = (track?.artists?.length ? track.artists.map((a: any) => a.name).join(', ') : '') || '';
-  const songTitle = artist ? `${artist} — ${track?.name || ''}` : track?.name || '';
-  const albumArtUrl = track?.album?.images?.[0]?.url;
-  const uri = track?.uri || track?.external_urls?.spotify || track?.id;
-  return {
-    userName: viewer.displayName || 'Guest',
-    songTitle,
-    albumArtUrl,
-    pfpUrl: viewer.avatarUrl,
-    color: viewer.color,
-    uri,
-  };
-}
-
 function parseTrackId(ref: string | undefined | null): string | null {
   if (!ref) return null;
   const s1 = /^spotify:track:([A-Za-z0-9]+)$/.exec(ref); if (s1) return s1[1];
@@ -54,14 +37,30 @@ function parseTrackId(ref: string | undefined | null): string | null {
 
 async function safeText(r: Response) { try { return await r.text(); } catch { return ''; } }
 
+async function postQueue(accessToken: string, uri: string, deviceId?: string) {
+  const qs = new URLSearchParams({ uri });
+  if (deviceId) qs.set('device_id', deviceId);
+  const resp = await fetch(`https://api.spotify.com/v1/me/player/queue?${qs.toString()}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return resp;
+}
+
 export async function queueTrackAndEmit(params: {
-  accessToken: string;            // user-modify-playback-state scope
+  accessToken: string;            // needs user-modify-playback-state (and user-read-playback-state for auto-activate)
   viewer: { displayName: string; avatarUrl?: string; color?: string };
   trackUriOrUrlOrId: string;      // spotify:track:... | open.spotify.com/track/... | id
   trackMeta?: { title?: string; albumArtUrl?: string };
-  deviceId?: string;              // optional, if you want to target a specific device
+  deviceId?: string;              // optional preferred device to target
+  autoActivateDevice?: boolean;   // default true: attempt to activate a device on 404
+  minVolumePercentIfActivate?: number; // optional; e.g. 10
 }) {
-  const { accessToken, viewer, trackUriOrUrlOrId, trackMeta, deviceId } = params;
+  const {
+    accessToken, viewer, trackUriOrUrlOrId, trackMeta,
+    deviceId, autoActivateDevice = true, minVolumePercentIfActivate
+  } = params;
+
   const id = parseTrackId(trackUriOrUrlOrId);
   const uri = id ? `spotify:track:${id}` : trackUriOrUrlOrId;
 
@@ -76,30 +75,53 @@ export async function queueTrackAndEmit(params: {
   };
   emitSongRequest(req);
 
+  // Try queue
+  let lastStatus = 0;
   try {
-    const qs = new URLSearchParams({ uri });
-    if (deviceId) qs.set('device_id', deviceId);
-    const resp = await fetch(`https://api.spotify.com/v1/me/player/queue?${qs.toString()}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    let resp = await postQueue(accessToken, uri, deviceId);
+    lastStatus = resp.status;
 
     if (resp.status === 204) {
       emitSongRequestResult({ ok: true, status: 204, request: req });
       return { ok: true, status: 204 };
     }
-    if (resp.status === 404) {
-      emitSongRequestResult({ ok: false, status: 404, message: 'No active device or invalid device_id.', request: req });
-      return { ok: false, status: 404 };
+
+    if (resp.status === 404 && autoActivateDevice) {
+      // Attempt to activate a device, then retry once
+      const activeId = await ensureActiveDevice(accessToken, {
+        preferredDeviceId: deviceId,
+        play: true,
+        fallbackToFirst: true,
+        minVolumePercent: minVolumePercentIfActivate,
+      });
+
+      if (!activeId) {
+        emitSongRequestResult({
+          ok: false,
+          status: 404,
+          message: 'No active device. Open Spotify on any device (desktop/mobile/web) and try again.',
+          request: req,
+        });
+        return { ok: false, status: 404 };
+      }
+
+      resp = await postQueue(accessToken, uri, activeId);
+      lastStatus = resp.status;
+
+      if (resp.status === 204) {
+        emitSongRequestResult({ ok: true, status: 204, request: req });
+        return { ok: true, status: 204 };
+      }
     }
+
     const text = await safeText(resp);
     emitSongRequestResult({ ok: false, status: resp.status, message: text, request: req });
-    return { ok: false, status: resp.status };
+    return { ok: false, status: resp.status, message: text };
   } catch (e: any) {
-    emitSongRequestResult({ ok: false, status: 0, message: e?.message || 'network error', request: req });
-    return { ok: false, status: 0 };
+    emitSongRequestResult({ ok: false, status: lastStatus || 0, message: e?.message || 'network error', request: req });
+    return { ok: false, status: lastStatus || 0, message: e?.message || 'network error' };
   }
 }
 
-// Expose manual emitter for quick testing in console
+// Expose manual emitter for quick testing
 ;(window as any).__emitSongRequest = emitSongRequest;
