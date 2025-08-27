@@ -1,7 +1,8 @@
-// Standalone "Requests Floater" overlay (no director needed).
-// - Creates a fixed, topmost canvas overlay.
-// - Listens to window "songrequest" CustomEvent and draws a floater.
-// - Exposes window.__emitSongRequest({...}) for easy testing.
+// Standalone "Requests Floater" overlay — transparent and auto-hides when idle.
+// - No background: only draws the floater(s).
+// - pointer-events: none (does not block clicks)
+// - Auto-hide when there are no floaters.
+// - Global helpers: __showRequestsFloaterOverlay(), __hideRequestsFloaterOverlay(), __removeRequestsFloaterOverlay()
 
 type Floater = {
   id: string;
@@ -17,7 +18,6 @@ type Floater = {
   ttl: number;
   bornAt: number;
   pulse: number;
-  awaitingMeta?: boolean;
 };
 
 (function setup() {
@@ -26,7 +26,7 @@ type Floater = {
 
   const DEBUG = (() => { try { return localStorage.getItem('songreq-debug') === '1'; } catch { return false; } })();
 
-  // Canvas overlay
+  // Canvas overlay (transparent)
   const c = document.createElement('canvas');
   c.id = 'requests-floaters-overlay';
   Object.assign(c.style, {
@@ -39,25 +39,28 @@ type Floater = {
     pointerEvents: 'none',
     opacity: '1',
     visibility: 'visible',
-    display: 'block',
+    display: 'none', // start hidden
   } as CSSStyleDeclaration);
   document.body.appendChild(c);
-  const ctx = c.getContext('2d')!;
+  const ctx = c.getContext('2d', { alpha: true })!;
+
   function resize() {
     const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     c.width = Math.floor(window.innerWidth * dpr);
     c.height = Math.floor(window.innerHeight * dpr);
-    // Keep CSS size in CSS pixels
-    c.style.width = '100vw';
-    c.style.height = '100vh';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   window.addEventListener('resize', resize);
   resize();
 
-  // Floater state
   const floaters: Floater[] = [];
   const byId = new Map<string, Floater>();
+
+  function show() { c.style.display = 'block'; }
+  function hide() { c.style.display = 'none'; }
+  (window as any).__showRequestsFloaterOverlay = show;
+  (window as any).__hideRequestsFloaterOverlay = hide;
+  (window as any).__removeRequestsFloaterOverlay = () => c.remove();
 
   function rand(min: number, max: number) { return min + Math.random() * (max - min); }
   function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
@@ -70,24 +73,8 @@ type Floater = {
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
         img.src = url;
-      } catch {
-        resolve(null);
-      }
+      } catch { resolve(null); }
     });
-  }
-
-  function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
-    if (!text) return '';
-    if (ctx.measureText(text).width <= maxW) return text;
-    const ell = '…';
-    let lo = 0, hi = text.length;
-    while (lo < hi) {
-      const mid = ((lo + hi) >> 1) + 1;
-      const t = text.slice(0, mid) + ell;
-      if (ctx.measureText(t).width <= maxW) lo = mid;
-      else hi = mid - 1;
-    }
-    return text.slice(0, lo) + ell;
   }
 
   function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -104,7 +91,18 @@ type Floater = {
     ctx.quadraticCurveTo(x, y, x + rr, y);
     ctx.closePath();
   }
-
+  function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
+    if (!text) return '';
+    if (ctx.measureText(text).width <= maxW) return text;
+    const ell = '…';
+    let lo = 0, hi = text.length;
+    while (lo < hi) {
+      const mid = ((lo + hi) >> 1) + 1;
+      const t = text.slice(0, mid) + ell;
+      if (ctx.measureText(t).width <= maxW) lo = mid; else hi = mid - 1;
+    }
+    return text.slice(0, lo) + ell;
+  }
   function hexToRgba(hex: string, a: number) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
     if (!m) return `rgba(34,204,136,${a})`;
@@ -135,12 +133,12 @@ type Floater = {
       pulse: 0,
     };
 
-    // Start loading images (don’t block rendering)
     if (req.pfpUrl) loadImg(req.pfpUrl).then(img => { if (img) flo.pfp = img; });
     if (req.albumArtUrl) loadImg(req.albumArtUrl).then(img => { if (img) flo.album = img; });
 
     floaters.push(flo);
     byId.set(id, flo);
+    show(); // only show when we actually have something to draw
     if (DEBUG) console.log('[Standalone Requests] added floater', { id: flo.id, name: flo.name, song: flo.song });
   }
 
@@ -151,7 +149,7 @@ type Floater = {
     addFloater(payload);
   }
 
-  // Public quick emitter
+  // Public quick emitter (for testing)
   if (!(window as any).__emitSongRequest) {
     (window as any).__emitSongRequest = (p: any) => window.dispatchEvent(new CustomEvent('songrequest', { detail: p }));
   }
@@ -160,36 +158,19 @@ type Floater = {
   const events = ['songrequest', 'tiktok:songrequest', 'song-request', 'songQueued', 'queue:add', 'queue:add:request'];
   for (const e of events) window.addEventListener(e, onSongRequest as any);
 
-  // Animation loop
+  // Animation loop (transparent background)
   let last = performance.now();
   function frame(now: number) {
     const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
 
-    // Clear
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Clear only; no background fill
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const W = c.width / dpr, H = c.height / dpr;
+    ctx.clearRect(0, 0, W, H);
 
-    // Background gradient
-    const grad = ctx.createLinearGradient(0, 0, W, H);
-    grad.addColorStop(0, '#0f1220');
-    grad.addColorStop(1, '#141018');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-
-    // Hint when empty
-    if (!floaters.length) {
-      ctx.fillStyle = '#fff';
-      ctx.font = '700 22px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Requests Floater (Standalone)', W / 2, H * 0.12);
-      ctx.font = '500 16px system-ui, sans-serif';
-      ctx.fillStyle = '#ddd';
-      ctx.fillText('Call window.__emitSongRequest({ userName, songTitle, pfpUrl?, albumArtUrl? })', W / 2, H * 0.12 + 28);
-    }
-
+    // Draw floaters
     for (let i = floaters.length - 1; i >= 0; i--) {
       const f = floaters[i];
       f.life += dt;
@@ -200,14 +181,14 @@ type Floater = {
 
       // Motion
       const t = f.life * 0.7;
-      const targetVx = Math.sin(t + i) * 30;
-      const targetVy = Math.cos(0.9 * t + i * 1.3) * 22;
-      f.vx = lerp(f.vx, targetVx, 0.08);
-      f.vy = lerp(f.vy, targetVy, 0.08);
+      const tx = Math.sin(t + i) * 30;
+      const ty = Math.cos(0.9 * t + i * 1.3) * 22;
+      f.vx = lerp(f.vx, tx, 0.08);
+      f.vy = lerp(f.vy, ty, 0.08);
       f.x += f.vx * dt;
       f.y += f.vy * dt;
 
-      // Draw card
+      // Dimensions
       const base = Math.max(90, Math.min(200, Math.min(W, H) * 0.2));
       const boxW = base * 1.5;
       const boxH = base * 0.95;
@@ -272,9 +253,12 @@ type Floater = {
       ctx.restore();
     }
 
+    // Auto-hide if nothing to draw
+    if (!floaters.length && c.style.display !== 'none') hide();
+
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
-  if (DEBUG) console.log('[Standalone Requests] overlay ready');
+  if (DEBUG) console.log('[Standalone Requests] overlay ready (transparent)');
 })();
