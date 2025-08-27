@@ -1,13 +1,19 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
     "baseUrl": ".",
     "paths": {
-      "@auth/*": ["src/auth/*"],
+       "@auth/*": ["src/auth/*"],
       "@spotify/*": ["src/spotify/*"],
       "@audio/*": ["src/audio/*"],
       "@visuals/*": ["src/visuals/*"],
@@ -15,11 +21,9 @@
       "@ui/*": ["src/ui/*"],
       "@utils/*": ["src/utils/*"]
     },
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "strict": true
+
+    "types": ["vite/client"]
   },
-  "include": ["src", "vite-env.d.ts"]
+  "include": ["src", "types", "vite-env.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }

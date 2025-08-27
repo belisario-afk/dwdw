@@ -1,5 +1,4 @@
 import '@/styles/service-banner.css';
-import { initServiceBannerForAudioFeatures } from '@/utils/serviceBanner'; initServiceBannerForAudioFeatures();
 import './fonts';
 import './styles/lyrics.css';
 import { ensureRoute } from './router';
@@ -42,8 +41,7 @@ initResponsiveHUD();
 
 declare global {
   interface Window {
-    onSpotifyWebPlaybackSDKReady?: () => void;
-    Spotify: any;
+    Spotify?: any; // make it optional
     director?: VisualDirector;
     TIKTOK_PROXY_URL?: string;
   }

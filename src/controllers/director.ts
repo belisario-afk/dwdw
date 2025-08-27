@@ -831,32 +831,35 @@ export class VisualDirector extends Emitter<DirectorEvents> {
       this.lyricAgents[idx].target = (Math.random() * this.textPoints.length) | 0;
     }
   }
-  private prepareTextField(text: string, w: number, h: number) {
-    this.lastTextW = w; this.lastTextH = h;
-    const sf = Math.min(w * 0.8, h * 0.32);
-    if (!this.textField) this.textField = document.createElement('canvas');
-    this.textField.width = w; this.textField.height = h;
-    const tctx = this.textField.getContext('2d', { willReadFrequently: true } as any)!;
-    tctx.clearRect(0, 0, w, h);
-    tctx.fillStyle = '#fff';
-    tctx.textAlign = 'center';
-    tctx.textBaseline = 'middle';
-    tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
-    tctx.fillText(text || 'DWDW', w / 2, h / 2);
+ private prepareTextField(text: string, w: number, h: number) {
+  this.lastTextW = w; this.lastTextH = h;
+  const sf = Math.min(w * 0.8, h * 0.32);
+  if (!this.textField) this.textField = document.createElement('canvas');
+  this.textField.width = w; this.textField.height = h;
 
-    const img = tctx.getImageData(0, 0, w, h).data;
-    const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
-    const pts: Array<{ x: number; y: number }> = [];
-    for (let yy = 0; yy < h; yy += step) {
-      for (let xx = 0; xx < w; xx += step) {
-        const i = (yy * w + xx) * 4 + 3;
-        if (img[i] > 32) pts.push({ x: xx, y: yy });
-      }
+  const tctx = this.textField.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!tctx) return;
+
+  tctx.clearRect(0, 0, w, h);
+  tctx.fillStyle = '#fff';
+  tctx.textAlign = 'center';
+  tctx.textBaseline = 'middle';
+  tctx.font = `bold ${Math.max(18, Math.floor(sf))}px system-ui, sans-serif`;
+  tctx.fillText(text || 'DWDW', w / 2, h / 2);
+
+  const img = tctx.getImageData(0, 0, w, h).data;
+  const step = Math.max(3, Math.floor(Math.min(w, h) / 120));
+  const pts: Array<{ x: number; y: number }> = [];
+  for (let yy = 0; yy < h; yy += step) {
+    for (let xx = 0; xx < w; xx += step) {
+      const i = (yy * w + xx) * 4 + 3;
+      if (img[i] > 32) pts.push({ x: xx, y: yy });
     }
-    const maxPts = 900;
-    this.textPoints = pts.length > maxPts ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts) : pts;
-    this.lyricAgents = [];
   }
+  const maxPts = 900;
+  this.textPoints = pts.length > maxPts ? pts.sort(() => Math.random() - 0.5).slice(0, maxPts) : pts;
+  this.lyricAgents = [];
+}
   private initLyricAgents() {
     const n = Math.min(900, this.textPoints.length);
     this.lyricAgents = new Array(n).fill(0).map(() => {
@@ -1004,8 +1007,10 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 
     this.flowImageCanvas = document.createElement('canvas');
     this.flowImageCanvas.width = w; this.flowImageCanvas.height = h;
-    this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as any)!;
-    this.flowImageCtx.putImageData(imgData, 0, 0);
+    this.flowImageCtx = this.flowImageCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
+    if (this.flowImageCtx) {
+  this.flowImageCtx.putImageData(imgData, 0, 0);
+}
 
     const data = imgData.data;
     const lum = new Float32Array(w * h);
@@ -1976,11 +1981,12 @@ export class VisualDirector extends Emitter<DirectorEvents> {
         const sj = sites[j];
 
         const mx = (si.x + sj.x) / 2;
-        const my = (si.y + sj.y) / 2;
-        const sx = sj.x - si.x;
-        const sy = sj.y - si.y;
-
-        poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        the: {
+          const my = (si.y + sj.y) / 2;
+          const sx = sj.x - si.x;
+          const sy = sj.y - si.y;
+          poly = clipPolygonHalfPlane(poly, sx, sy, mx, my);
+        }
         if (poly.length === 0) break;
       }
 
@@ -2275,7 +2281,7 @@ export class VisualDirector extends Emitter<DirectorEvents> {
     this.togglePanel('access', false);
   }
 
-  // Click-only wiring: only wire to explicit buttons, no data-action, no keyboard shortcuts
+  // Click-only wiring: only wire to explicit buttons, no keyboard shortcuts
   private autowirePanelButtons() {
     const wire = () => {
       const btnQ = document.querySelector<HTMLElement>('#btn-quality');
@@ -2310,53 +2316,169 @@ export class VisualDirector extends Emitter<DirectorEvents> {
 }
 
 // Polygon clipping against half-plane for Voronoi
-function clipPolygonHalfPlane(
-  poly: Array<{ x: number; y: number }>,
-  nx: number,
-  ny: number,
-  px: number,
-  py: number
-) {
+function clipPolygonHalfPlane(poly: Array<{ x: number; y: number }>, nx: number, ny: number, px: number, py: number) {
   const out: Array<{ x: number; y: number }> = [];
   const side = (x: number, y: number) => (x - px) * nx + (y - py) * ny <= 0;
-
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i];
     const b = poly[(i + 1) % poly.length];
     const ina = side(a.x, a.y);
     const inb = side(b.x, b.y);
-
     if (ina && inb) {
-      // both inside: keep end point
       out.push(b);
     } else if (ina && !inb) {
-      // leaving: keep intersection only
       const t = intersectParam(a, b, nx, ny, px, py);
       out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
     } else if (!ina && inb) {
-      // entering: add intersection + end point
       const t = intersectParam(a, b, nx, ny, px, py);
       out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
       out.push(b);
     }
-    // else both outside: add nothing
   }
-
   return out;
 }
-
-// Keep intersectParam exactly like this (or add it if missing right below)
-function intersectParam(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  nx: number,
-  ny: number,
-  px: number,
-  py: number
-) {
+function intersectParam(a: { x: number; y: number }, b: { x: number; y: number }, nx: number, ny: number, px: number, py: number) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const denom = dx * nx + dy * ny || 1e-6;
   const t = ((px - a.x) * nx + (py - a.y) * ny) / denom;
   return Math.max(0, Math.min(1, t));
+}
+
+// Math helpers
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function clampInt(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v | 0)); }
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+function angularDelta(a: number, b: number) {
+  let d = (b - a) % 360;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return d;
+}
+
+// Color helpers (ensure these exist to avoid ReferenceError)
+function hexToRgb(hex: string): RGB | null {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+  if (!m) return null;
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+function rgbToHsl({ r, g, b }: RGB): HSL {
+  let rr = r / 255, gg = g / 255, bb = b / 255;
+  const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb);
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rr: h = (gg - bb) / d + (gg < bb ? 6 : 0); break;
+      case gg: h = (bb - rr) / d + 2; break;
+      case bb: h = (rr - gg) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h: number, s: number, l: number): RGB {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+  else { r1 = c; g1 = 0; b1 = x; }
+  return { r: Math.round((r1 + m) * 255), g: Math.round((g1 + m) * 255), b: Math.round((b1 + m) * 255) };
+}
+function shiftPaletteHue(p: UIPalette, hue: number): UIPalette {
+  const fmt = (c: RGB) => `#${((1 << 24) + (c.r << 16) + (c.g << 8) + c.b).toString(16).slice(1)}`;
+  return {
+    dominant: fmt(hslToRgb((hue + 0) % 360, 0.8, 0.5)),
+    secondary: fmt(hslToRgb((hue + 180) % 360, 0.7, 0.5)),
+    colors: p.colors.map((_, i) => fmt(hslToRgb((hue + i * 30) % 360, 0.75, 0.5)))
+  };
+}
+function blendPalettes(a: UIPalette, b: UIPalette, t: number): UIPalette {
+  const mixHex = (ha: string, hb: string) => {
+    const ra = hexToRgb(ha)!, rb = hexToRgb(hb)!;
+    const r = Math.round(ra.r + (rb.r - ra.r) * t);
+    const g = Math.round(ra.g + (rb.g - ra.g) * t);
+    const b2 = Math.round(ra.b + (rb.b - ra.b) * t);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b2).toString(16).slice(1)}`;
+  };
+  return {
+    dominant: mixHex(a.dominant, b.dominant),
+    secondary: mixHex(a.secondary, b.secondary),
+    colors: a.colors.map((c, i) => mixHex(c, b.colors[i % b.colors.length]))
+  };
+}
+function tintRgbTowardHue(c: RGB, hue: number, amt: number): RGB {
+  const hsl = rgbToHsl(c);
+  const mixed = hslToRgb(hue, Math.min(1, hsl.s + amt * 0.5), Math.min(1, hsl.l + amt * 0.1));
+  return {
+    r: Math.round(c.r + (mixed.r - c.r) * amt),
+    g: Math.round(c.g + (mixed.g - c.g) * amt),
+    b: Math.round(c.b + (mixed.b - c.b) * amt)
+  };
+}
+
+// Lyrics parsers
+function parseLRC(lrc: string): LyricLine[] {
+  const lines: LyricLine[] = [];
+  const re = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.*)/g;
+  let m: RegExpExecArray | null;
+  const tmp: Array<{ t: number; text: string }> = [];
+  while ((m = re.exec(lrc)) !== null) {
+    const min = parseInt(m[1], 10);
+    const sec = parseInt(m[2], 10);
+    const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
+    const t = min * 60 + sec + ms / 1000;
+    tmp.push({ t, text: (m[4] || '').trim() });
+  }
+  tmp.sort((a, b) => a.t - b.t);
+  for (let i = 0; i < tmp.length; i++) {
+    const start = tmp[i].t;
+    const end = i + 1 < tmp.length ? tmp[i + 1].t : start + 5;
+    lines.push({ start, end, text: tmp[i].text });
+  }
+  return lines;
+}
+function parsePlainLyrics(text: string, durationSec: number): LyricLine[] {
+  const rows = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!rows.length) return [];
+  const per = Math.max(3, Math.floor(durationSec / rows.length));
+  const out: LyricLine[] = [];
+  let t = 0;
+  for (const row of rows) {
+    out.push({ start: t, end: t + per, text: row });
+    t += per;
+  }
+  if (out.length) out[out.length - 1].end = durationSec;
+  return out;
+}
+
+// Image loader
+async function loadImage(url: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
 }

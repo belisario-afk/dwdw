@@ -14,8 +14,6 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* In case inline styles aren’t present or get overridden,
-   keep these to guarantee the canvas fills the screen. */
 #canvas-host, #app, .app-root {
   position: relative;
   width: 100%;
