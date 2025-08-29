@@ -1,8 +1,6 @@
 name = "image-proxy"
 main = "workers/image-proxy.js"
 compatibility_date = "2024-09-01"
-
-# Serve on your workers.dev subdomain (no zone required)
 workers_dev = true
 
 [observability]
