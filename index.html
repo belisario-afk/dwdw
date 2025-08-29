@@ -116,7 +116,7 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- Disabled duplicate overlay; QueueFloater handles visuals -->
+    <!-- Disable duplicate overlay; QueueFloater handles visuals -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
     <!-- Keep your chat/queue bridge enabled so commands still work -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
@@ -268,12 +268,12 @@
       })();
     </script>
 
-    <!-- Queue Floater (local file) + TikTok chat linking -->
+    <!-- Queue Floater (local) + TikTok chat linking -->
     <script src="/queue-floater.js"></script>
     <script>
       (function () {
         if (!window.QueueFloater) {
-          console.error('[QueueFloater] not loaded from /queue-floater.js. Make sure public/queue-floater.js exists.');
+          console.error('[QueueFloater] not loaded from /queue-floater.js. Ensure public/queue-floater.js exists.');
           return;
         }
 
@@ -281,15 +281,19 @@
           return 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u || '');
         }
 
+        // Enable debug temporarily to verify linkage timing
         QueueFloater.setConfig({
           proxyImages: true,
           proxy,
           color: '#22cc88',
           chatLinkTTLms: 20000,
-          recentChatWindowMs: 20000
-          // debug: true
+          recentChatWindowMs: 20000,
+          debug: true,
+          // Optional: a fallback avatar so you always see a picture even if mapping fails
+          defaultPfpUrl: proxy('https://i.pravatar.cc/100?img=5')
         });
 
+        // Map likely TikTok fields → { userId, userName, pfpUrl }
         function mapTikTokUser(chat) {
           const user = chat && (chat.user || chat);
           const userId =
@@ -315,9 +319,33 @@
           }
         }
 
-        window.addEventListener('tiktok:comment', (e) => linkNextFromChat(e.detail));
-        window.addEventListener('tiktok:request', (e) => linkNextFromChat(e.detail));
-        window.addEventListener('songrequest:chat', (e) => linkNextFromChat(e.detail));
+        // Listen to a broad set of possible events from your chat bridge
+        const linkEvents = [
+          'tiktok:comment',
+          'tiktok:request',
+          'tiktok:message',
+          'chat:command',
+          'sr:command',
+          'songrequest:chat'
+        ];
+        linkEvents.forEach((evt) => {
+          window.addEventListener(evt, (e) => linkNextFromChat(e.detail));
+        });
+
+        // Expose a helper your chat code can call right before queue POST:
+        // window.linkNextTikTokUser({ user, userName, pfpUrl, ... })
+        window.linkNextTikTokUser = function (payloadOrChat) {
+          linkNextFromChat(payloadOrChat);
+        };
+
+        // If your bridge exposes a global pubsub, try to hook it (best-effort, safe if absent)
+        try {
+          const br = window.__bridge || window.bridge || window.requestsBridge;
+          if (br && typeof br.on === 'function') {
+            br.on('tiktok:comment', linkNextFromChat);
+            br.on('tiktok:request', linkNextFromChat);
+          }
+        } catch {}
       })();
     </script>
   </body>
