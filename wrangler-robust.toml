@@ -1,20 +1,3 @@
-# Cloudflare Worker config for side-by-side deployment of the robust image proxy.
-# Deploy with:
-#   npx wrangler deploy -c wrangler-robust.toml
-#
-# After deploy, set this in your app (e.g., public/queue-floater-config.js):
-#   const ROBUST_PROXY = 'https://image-proxy-robust.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
-
 name = "image-proxy-robust"
 main = "workers/image-proxy-robust.js"
 compatibility_date = "2024-09-01"
-
-# Use workers.dev by default. If you prefer a custom route, uncomment and configure below.
-# [routes]
-#   routes = [
-#     { pattern = "images.yourdomain.com/image-proxy*", zone_name = "yourdomain.com" }
-#   ]
-
-# If you need KV, R2, etc., define bindings here.
-# [vars]
-#   MY_VAR = "value"
