@@ -6,20 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       html, body { height: 100%; margin: 0; background: #0b0b0f; color: #eee; font: 14px/1.3 system-ui, sans-serif; }
-      .hud { position: fixed; inset: 16px; display: grid; gap: 8px; max-width: 640px; }
+      .hud { position: fixed; inset: 16px; display: grid; gap: 8px; max-width: 720px; }
       input, button { padding: 8px; border-radius: 8px; border: 1px solid #333; background: #17171d; color: #eee; }
       label { opacity: 0.8; }
+      pre { white-space: pre-wrap; }
     </style>
-    <script>
-      // Set your robust proxy URL here after deploying the worker:
-      // window.QUEUE_FLOATER_IMAGE_PROXY = 'https://YOUR-SUBDOMAIN.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
-      window.QUEUE_FLOATER_IMAGE_PROXY = window.QUEUE_FLOATER_IMAGE_PROXY || '';
-    </script>
+    <!-- Use the same proxy config as the app -->
+    <script src="/queue-floater-config.js"></script>
   </head>
   <body>
     <div class="hud">
       <label>Avatar URL (TikTok or any image)</label>
-      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg" />
+      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5" />
 
       <label>Track URI</label>
       <input id="track" value="spotify:track:4NRXx6U3G3J3RkGfHh1Euh" />

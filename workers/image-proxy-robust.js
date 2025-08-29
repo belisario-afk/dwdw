@@ -1,6 +1,6 @@
 // Cloudflare Worker: Robust CORS-friendly image proxy with TikTok compatibility.
-// Deploy with: wrangler deploy workers/image-proxy-robust.js
-// Use in app: window.QUEUE_FLOATER_IMAGE_PROXY = 'https://YOUR-SUBDOMAIN.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
+// Deploy side-by-side with: npx wrangler deploy -c wrangler-robust.toml
+// Use in app: window.QUEUE_FLOATER_IMAGE_PROXY = 'https://image-proxy-robust.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
 
 export default {
   async fetch(request, env, ctx) {
@@ -22,7 +22,7 @@ export default {
     }
 
     if (url.pathname.startsWith('/image-proxy')) {
-      return handleImageProxy(request, url);
+      return handleImageProxy(request, url, ctx);
     }
 
     // Optional: scrape TikTok avatar by username (server-side)
@@ -47,7 +47,7 @@ export default {
   }
 };
 
-async function handleImageProxy(request, url) {
+async function handleImageProxy(request, url, ctx) {
   const target = url.searchParams.get('url') || '';
   if (!target) {
     return new Response('Missing url param', { status: 400, headers: corsHeaders() });
@@ -60,14 +60,14 @@ async function handleImageProxy(request, url) {
     return new Response('Invalid url', { status: 400, headers: corsHeaders() });
   }
 
-  // Enforce HTTPS and pixel-only schemes
+  // Enforce HTTPS
   if (upstreamUrl.protocol !== 'https:') {
     return new Response('Only https is allowed', { status: 400, headers: corsHeaders() });
   }
 
   // Allowlist (adjust as needed)
   const allowHosts = [
-    // TikTok CDNs (add more variants if needed)
+    // TikTok CDNs (common variants)
     'tiktokcdn.com',
     'tiktokcdn-us.com',
     'tiktokcdn-eu.com',
@@ -87,7 +87,7 @@ async function handleImageProxy(request, url) {
   ];
   const isAllowed = allowHosts.some((h) => upstreamUrl.host === h || upstreamUrl.host.endsWith('.' + h));
   if (!isAllowed) {
-    // Comment out to allow any host:
+    // Optionally enforce:
     // return new Response('Host not allowed', { status: 403, headers: corsHeaders() });
   }
 
@@ -117,31 +117,24 @@ async function handleImageProxy(request, url) {
   if (inm) reqHeaders.set('If-None-Match', inm);
   if (ims) reqHeaders.set('If-Modified-Since', ims);
 
-  // Fetch options
-  const fetchOpts = {
-    method: 'GET',
-    headers: reqHeaders,
-    redirect: 'follow',
-    cf: {
-      cacheTtl: 86400,
-      cacheEverything: true
-    }
-  };
-
-  // Try cache first (if using the built-in cache)
-  const cache = caches.default;
+  // Normalize cache key to avoid query noise unrelated to image identity
   const cacheKey = new Request(url.toString(), { method: 'GET' });
+  const cache = caches.default;
   const cached = await cache.match(cacheKey);
   if (cached) {
-    // Serve cached with CORS headers
-    const resp = new Response(cached.body, { headers: mergeForCORS(cached.headers) , status: cached.status });
+    const resp = new Response(cached.body, { headers: mergeForCORS(cached.headers), status: cached.status });
     return resp;
   }
 
   // Fetch upstream
   let upstream;
   try {
-    upstream = await fetch(upstreamUrl.toString(), fetchOpts);
+    upstream = await fetch(upstreamUrl.toString(), {
+      method: 'GET',
+      headers: reqHeaders,
+      redirect: 'follow',
+      cf: { cacheTtl: 86400, cacheEverything: true }
+    });
   } catch (e) {
     return new Response('Upstream fetch error', { status: 502, headers: corsHeaders() });
   }
@@ -178,15 +171,12 @@ async function handleImageProxy(request, url) {
     'set-cookie'
   ]);
 
-  // If partial content requested and honored upstream, preserve status 206
   const status = upstream.status;
-
-  // Stream the body and put into cache (only cache 200 OK)
   const body = upstream.body;
   const response = new Response(body, { status, headers: respHeaders });
 
   if (status === 200) {
-    ctxWait(caches.default.put(cacheKey, response.clone()));
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
   }
 
   return response;
@@ -226,6 +216,12 @@ function copyIf(dst, src, names) {
   });
 }
 
+function mergeForCORS(src) {
+  const h = corsHeaders();
+  copyIf(h, src, ['etag', 'last-modified', 'content-type', 'accept-ranges', 'content-length']);
+  return h;
+}
+
 function stripHeaders(src, names) {
   names.forEach((n) => {
     if (src.has(n)) src.delete(n);
@@ -236,17 +232,6 @@ function json(obj, status = 200) {
   const h = corsHeaders();
   h.set('Content-Type', 'application/json; charset=utf-8');
   return new Response(JSON.stringify(obj), { status, headers: h });
-}
-
-function ctxWait(promise) {
-  try {
-    // In newer runtimes, we might have execution context; ignore if not
-    // eslint-disable-next-line no-undef
-    if (typeof ctx !== 'undefined' && ctx && typeof ctx.waitUntil === 'function') {
-      // eslint-disable-next-line no-undef
-      ctx.waitUntil(promise);
-    }
-  } catch {}
 }
 
 /* Optional: server-side TikTok avatar scraping by username.
@@ -268,7 +253,6 @@ async function fetchTikTokAvatar(uniqueId) {
   if (!res.ok) return '';
 
   const html = await res.text();
-  // Look for SIGI_STATE JSON
   const m = html.match(/<script[^>]*id="SIGI_STATE"[^>]*>([\s\S]*?)<\/script>/i);
   if (!m) return '';
   try {

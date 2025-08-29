@@ -171,16 +171,13 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- IMPORTANT: legacy Requests overlay is intentionally NOT loaded to avoid duplicate cards -->
+    <!-- IMPORTANT: legacy Requests overlay is intentionally NOT loaded -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
-    <!-- Chat/queue bridge (keep enabled so commands still work) -->
+    <!-- Chat/queue bridge -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
 
-    <!-- Configure the image proxy endpoint used by QueueFloater (SET THIS to your Worker URL) -->
-    <script>
-      // Example: 'https://your-subdomain.your-account.workers.dev/image-proxy?url='
-      window.QUEUE_FLOATER_IMAGE_PROXY = window.QUEUE_FLOATER_IMAGE_PROXY || '';
-    </script>
+    <!-- QueueFloater image proxy config (choose your existing proxy OR the robust worker URL) -->
+    <script src="/queue-floater-config.js"></script>
   </head>
 
   <body>

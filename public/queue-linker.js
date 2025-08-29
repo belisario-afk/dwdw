@@ -63,7 +63,7 @@
       chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
 
     const pfpUrl = raw ? proxyViaWorker(raw) : '';
-    return { platform: 'tiktok', userId, userName, pfpUrl };
+    return { platform: 'tiktok', userId, userName, pfpUrl, _rawAvatar: raw || '' };
   }
 
   // Public helper: call this with your chat object BEFORE queueing
@@ -150,9 +150,9 @@
     window.__queueFloaterXHRPatched = true;
   })();
 
-  // Optional: quick console test
+  // Optional: quick console test using your posted TikTok avatar URL
   window.__testQueueFloater = async function () {
-    const avatar = 'https://i.pravatar.cc/100?img=12';
+    const avatar = 'https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5';
     const proxied = proxyViaWorker(avatar);
     QueueFloater.linkNextQueueTo({
       platform: 'tiktok',
