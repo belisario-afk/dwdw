@@ -1,4 +1,4 @@
-// Set your robust image proxy base (Cloudflare Worker). Change if yours differs.
+// Robust image proxy base (Cloudflare Worker). Change if yours differs.
 window.QUEUE_FLOATER_IMAGE_PROXY = 'https://image-proxy-robust.tikusers862.workers.dev/image-proxy?url=';
 
 // Apply core QueueFloater config once it's available

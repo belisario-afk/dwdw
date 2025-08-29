@@ -23,7 +23,7 @@
     try { return decodeURIComponent(s); } catch { return s; }
   }
 
-  // Extract original URL from common proxy patterns (?url=...); supports generic hosts
+  // Extract original URL from common proxy patterns (?url=...)
   function extractRawFromProxy(u) {
     try {
       const x = new URL(u);

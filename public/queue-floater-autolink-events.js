@@ -23,10 +23,12 @@
     const uniqueId = detail.uniqueId || userName;
     let avatar = detail.avatarUrl || detail.profileImageUrl || '';
     if(!avatar && uniqueId) avatar = await maybeFetchAvatar(uniqueId);
+    if (!userName && !uniqueId) return;
     mark({ userName, uniqueId, avatarUrl: avatar, platform: 'tiktok' });
+    try { console.log(TAG, 'marked from event', { userName: userName || uniqueId, hasPfp: !!avatar }); } catch {}
   }
-  ['songrequest','songRequest','requests:add','request'].forEach(evt=>{
-    document.addEventListener(evt, e=>{ try{ handle(e.detail || {}); }catch{}; }, true);
+  ['songrequest','songRequest','requests:add','request','chat:songrequest'].forEach(evt=>{
+    document.addEventListener(evt, e=>{ try{ handle((e && e.detail) || {}); }catch{}; }, true);
   });
   try{ console.log(TAG,'listening'); }catch{}
 })();
