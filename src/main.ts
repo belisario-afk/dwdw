@@ -12,8 +12,6 @@ import { Palette } from '@utils/palette';
 import { Cache } from '@utils/storage';
 import '@ui/responsive.css';
 import { initResponsiveHUD } from '@ui/responsive';
-import './scenes/requests-scene';
-import './boot/register-requests-scene'
 import { registerBoxingScene } from './scenes/boxing';
 
 initResponsiveHUD();
