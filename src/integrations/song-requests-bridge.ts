@@ -64,6 +64,16 @@ export async function queueTrackAndEmit(params: {
   const id = parseTrackId(trackUriOrUrlOrId);
   const uri = id ? `spotify:track:${id}` : trackUriOrUrlOrId;
 
+  // Emit chat-to-queue linking event first so QueueFloater can attach avatar info
+  window.dispatchEvent(new CustomEvent('songrequest:chat', {
+    detail: {
+      platform: 'tiktok',
+      userId: viewer.displayName, // Use displayName as userId for consistency
+      userName: viewer.displayName || 'Guest',
+      pfpUrl: viewer.avatarUrl || ''
+    }
+  }));
+
   // Emit to UI immediately so a floater appears regardless of queue result
   const req: SongRequestPayload = {
     userName: viewer.displayName || 'Guest',
