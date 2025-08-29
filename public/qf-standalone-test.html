@@ -17,19 +17,22 @@
   <body>
     <div class="hud">
       <label>Avatar URL (TikTok or any image)</label>
-      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5" />
+      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%253D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5" />
 
       <label>Track URI</label>
       <input id="track" value="spotify:track:4NRXx6U3G3J3RkGfHh1Euh" />
 
-      <div>
-        <button id="btn">Test Floater</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="btn-fetch">Test Floater (fetch)</button>
+        <button id="btn-xhr">Test Floater (XHR)</button>
       </div>
 
       <pre id="log"></pre>
     </div>
 
     <script src="/queue-floater.js"></script>
+    <!-- IMPORTANT: include the linker so queue calls are always detected -->
+    <script src="/queue-linker.js"></script>
     <script>
       (function () {
         const log = (...a) => {
@@ -51,6 +54,9 @@
           }
         }
 
+        // Sanity check library presence
+        log('QueueFloater present:', typeof window.QueueFloater);
+
         QueueFloater.setConfig({
           debug: true,
           proxyImages: true,
@@ -60,11 +66,9 @@
           color: '#22cc88'
         });
 
-        document.getElementById('btn').addEventListener('click', async () => {
+        function linkToAvatar() {
           const avatar = document.getElementById('avatar').value.trim();
-          const track = document.getElementById('track').value.trim();
           const proxied = proxy(avatar);
-
           QueueFloater.linkNextQueueTo({
             platform: 'tiktok',
             userId: '123',
@@ -72,12 +76,38 @@
             pfpUrl: proxied
           });
           log('linked to', { pfpUrl: proxied });
+        }
 
+        async function fireQueueViaFetch() {
+          const track = document.getElementById('track').value.trim();
           try {
-            await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), { method: 'POST', mode: 'no-cors' });
+            await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), {
+              method: 'POST',
+              mode: 'no-cors'
+            });
           } catch {}
+          log('queue fired (fetch, no-cors)');
+        }
 
-          log('queue fired (no-cors)');
+        function fireQueueViaXHR() {
+          const track = document.getElementById('track').value.trim();
+          try {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), true);
+            xhr.send();
+          } catch {}
+          log('queue fired (XHR)');
+        }
+
+        document.getElementById('btn-fetch').addEventListener('click', async () => {
+          linkToAvatar();
+          await new Promise(r => setTimeout(r, 50)); // tiny delay so linker can run first
+          await fireQueueViaFetch();
+        });
+
+        document.getElementById('btn-xhr').addEventListener('click', () => {
+          linkToAvatar();
+          setTimeout(fireQueueViaXHR, 50);
         });
       })();
     </script>
