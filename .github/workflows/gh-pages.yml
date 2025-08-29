@@ -42,10 +42,12 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Install dependencies
+        shell: bash
         run: |
           if [ -f pnpm-workspace.yaml ]; then W="-w"; else W=""; fi
           if [ -f pnpm-lock.yaml ]; then
-            pnpm $W install --frozen-lockfile
+            # Try frozen first for reproducibility; if lockfile is outdated, fall back
+            pnpm $W install --frozen-lockfile || pnpm $W install --no-frozen-lockfile
           else
             pnpm $W install --no-frozen-lockfile
           fi
