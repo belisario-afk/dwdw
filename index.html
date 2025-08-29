@@ -117,10 +117,10 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- disabled: QueueFloater provides its own requests overlay -->
+    <!-- Disabled duplicate overlay; QueueFloater handles visuals -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
-    <!-- disabled: QueueFloater includes its own Spotify queue bridge -->
-    <!-- <script type="module" src="/src/integrations/song-requests-bridge.ts"></script> -->
+    <!-- Keep your chat/queue bridge enabled so commands still work -->
+    <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
   </head>
   <body>
     <noscript>
@@ -272,12 +272,51 @@
     <!-- Queue Floater overlay (served from your Cloudflare Worker) -->
     <script src="https://image-proxy.tikusers862.workers.dev/queue-floater.production.js"></script>
     <script>
+      // Configure Queue Floater and extend chat→queue linking window
       QueueFloater.setConfig({
         proxyImages: true,
         proxy: (u) => 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u),
-        color: '#22cc88'
+        color: '#22cc88',
+        chatLinkTTLms: 20000,
+        recentChatWindowMs: 20000
         // debug: true
       });
+
+      // Helper to proxy any image (TikTok avatars/Spotify art) through your Worker
+      function proxy(u) {
+        return 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u || '');
+      }
+
+      // Map likely TikTok fields → QueueFloater link payload
+      function mapTikTokUser(chat) {
+        const user = chat && (chat.user || chat);
+        const userId =
+          user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
+        const userName =
+          user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
+          chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
+          'TikTok User';
+        const pfpRaw =
+          user?.avatar || user?.avatarUrl || user?.profilePictureUrl ||
+          chat?.avatar || chat?.avatarUrl || chat?.profilePictureUrl || '';
+        const pfpUrl = pfpRaw ? proxy(pfpRaw) : '';
+        return { platform: 'tiktok', userId, userName, pfpUrl };
+      }
+
+      function linkNextFromChat(chat) {
+        try {
+          const payload = mapTikTokUser(chat);
+          QueueFloater.linkNextQueueTo(payload);
+          console.debug('[QueueFloater] linked next queue to', payload);
+        } catch (e) {
+          console.warn('[QueueFloater] linkNextQueueTo failed', e);
+        }
+      }
+
+      // Listen for common chat events your bridge may emit and link the next queue call.
+      window.addEventListener('tiktok:comment', (e) => linkNextFromChat(e.detail));
+      window.addEventListener('tiktok:request', (e) => linkNextFromChat(e.detail));
+      window.addEventListener('songrequest:chat', (e) => linkNextFromChat(e.detail));
     </script>
   </body>
 </html>
