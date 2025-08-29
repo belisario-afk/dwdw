@@ -288,10 +288,141 @@ export class Fighter {
     this.updateStamina(smoothDt, songEnergy);
     this.updateIdleMotion(sceneTime, songEnergy, smoothDt);
     this.updateFootwork(smoothDt, songEnergy);
-    this.updateJointAngles(smoothDt, sceneTime);
-    this.updateAttackAnimation(smoothDt);
-    this.updateDefenseAnimation(smoothDt);
+    this.updateCombatAnimations(smoothDt, sceneTime, songEnergy);
     this.applyJointConstraints();
+  }
+
+  private updateCombatAnimations(deltaTime: number, sceneTime: number, songEnergy: number): void {
+    // This mirrors the original animation logic from the monolithic Fighter
+    // Base guard joint angles
+    let lS = -0.28, lE = -0.65, rS = 0.28, rE = 0.65;
+    
+    // Attack overlay
+    if (this.atk) {
+      this.atkT += deltaTime;
+      const p = clamp(this.atkT / this.atkDur, 0, 1);
+      const inP = easeOut(Math.min(1, p * 1.4));
+      const retP = easeIn(Math.max(0, (p - 0.5) * 2));
+      const lead = this.atkLead;
+      
+      switch (this.atk) {
+        case 'jab': {
+          if (this.facingRight ? lead : !lead) { // right jab
+            rE = clamp(0.65 - 1.15 * inP + 0.9 * retP, -1.6, 1.6);
+            rS = clamp(0.28 - 0.2 * inP + 0.15 * retP, -1.0, 1.0);
+          } else { // left jab
+            lE = clamp(-0.65 + 1.15 * inP - 0.9 * retP, -1.6, 1.6);
+            lS = clamp(-0.28 + 0.2 * inP - 0.15 * retP, -1.0, 1.0);
+          }
+          break;
+        }
+        case 'cross': {
+          const yaw = (this.facingRight ? -1 : 1) * 0.3 * inP - 0.25 * retP;
+          this.group.rotation.y = (this.facingRight ? 0 : Math.PI) + yaw;
+          if (this.facingRight ? !lead : lead) { // rear hand
+            lE = clamp(-0.65 - 1.25 * inP + 1.0 * retP, -1.8, 1.8);
+            lS = clamp(-0.28 - 0.1 * inP + 0.1 * retP, -1.0, 1.0);
+          } else {
+            rE = clamp(0.65 + 1.25 * inP - 1.0 * retP, -1.8, 1.8);
+            rS = clamp(0.28 + 0.1 * inP - 0.1 * retP, -1.0, 1.0);
+          }
+          break;
+        }
+        case 'hook': {
+          const roll = (this.facingRight ? -1 : 1) * 0.4 * inP;
+          this.group.rotation.z = roll * 0.4 - 0.3 * retP;
+          if (this.facingRight ? lead : !lead) {
+            rE = clamp(0.65 - 1.0 * inP + 0.9 * retP, -1.8, 1.8);
+            rS = clamp(0.28 + 0.7 * inP - 0.5 * retP, -1.0, 1.4);
+          } else {
+            lE = clamp(-0.65 + 1.0 * inP - 0.9 * retP, -1.8, 1.8);
+            lS = clamp(-0.28 - 0.7 * inP + 0.5 * retP, -1.4, 1.0);
+          }
+          break;
+        }
+        case 'uppercut': {
+          const lift = 0.22 * inP - 0.18 * retP; 
+          this.group.position.y += lift;
+          if (this.facingRight ? lead : !lead) {
+            rE = clamp(0.65 - 1.25 * inP + 1.0 * retP, -1.8, 1.8);
+            rS = clamp(0.28 + 0.2 * inP - 0.2 * retP, -1.0, 1.0);
+          } else {
+            lE = clamp(-0.65 + 1.25 * inP - 1.0 * retP, -1.8, 1.8);
+            lS = clamp(-0.28 - 0.2 * inP + 0.2 * retP, -1.0, 1.0);
+          }
+          break;
+        }
+      }
+      if (p >= 1) this.atk = null;
+    }
+
+    // Defense overlay
+    this.defT += deltaTime;
+    const sway = Math.sin(sceneTime * 0.5) * 0.06;
+    
+    switch (this.defense) {
+      case 'block': {
+        const p = easeInOut(Math.min(1, this.defT * 2.2));
+        lE = lerp(lE, -1.35, p); rE = lerp(rE, 1.35, p);
+        lS = lerp(lS, -0.6, p); rS = lerp(rS, 0.6, p);
+        break;
+      }
+      case 'duck': {
+        const p = easeInOut(Math.min(1, this.defT * 2.2));
+        this.group.position.y = lerp(this.group.position.y, -0.4, p);
+        this.group.rotation.x = lerp(this.group.rotation.x, 0.18, p);
+        break;
+      }
+      case 'slipL': {
+        const p = easeInOut(Math.min(1, this.defT * 2.2));
+        const dir = this.facingRight ? -1 : 1;
+        this.group.position.x += dir * 0.16 * p;
+        this.group.rotation.y += dir * 0.2 * p;
+        break;
+      }
+      case 'slipR': {
+        const p = easeInOut(Math.min(1, this.defT * 2.2));
+        const dir = this.facingRight ? 1 : -1;
+        this.group.position.x += dir * 0.16 * p;
+        this.group.rotation.y += dir * 0.2 * p;
+        break;
+      }
+      case 'weave': {
+        const p = Math.min(1, this.defT * 2.0);
+        this.group.position.y = lerp(this.group.position.y, -0.28, Math.sin(p * Math.PI));
+        this.group.rotation.z = lerp(this.group.rotation.z, (this.facingRight ? -1 : 1) * 0.35, Math.sin(p * Math.PI));
+        break;
+      }
+      case 'stagger': {
+        const p = easeOut(Math.min(1, this.defT * 1.8));
+        this.group.rotation.z = (this.facingRight ? 1 : -1) * 0.28 * p;
+        this.group.position.x += (this.facingRight ? -1 : 1) * 0.07 * p;
+        if (this.defT > 0.6) { this.defense = 'idle'; this.defT = 0; }
+        break;
+      }
+      case 'ko': {
+        const p = easeIn(Math.min(1, this.defT * 1.6));
+        this.group.rotation.x = lerp(this.group.rotation.x, Math.PI / 2, p);
+        this.group.position.y = lerp(this.group.position.y, -1.1, p);
+        lS += 0.7 * p; lE += 1.3 * p; rS -= 0.7 * p; rE -= 1.3 * p;
+        break;
+      }
+      default: break;
+    }
+
+    // Reset lean back to stance smoothly if not in strong defense
+    if (this.defense === 'idle' || this.defense === 'block') {
+      this.group.rotation.z = damp(this.group.rotation.z, 0, 8, deltaTime);
+      this.group.rotation.x = damp(this.group.rotation.x, 0, 8, deltaTime);
+      this.group.position.y = damp(this.group.position.y, 0, 8, deltaTime);
+      this.group.rotation.y = damp(this.group.rotation.y, (this.facingRight ? 0 : Math.PI) + sway * 0.5, 6, deltaTime);
+    }
+
+    // Apply joint rotations
+    this.leftShoulder.rotation.z = lS;
+    this.leftElbow.rotation.z = lE;
+    this.rightShoulder.rotation.z = rS;
+    this.rightElbow.rotation.z = rE;
   }
 
   private updateStamina(deltaTime: number, songEnergy: number): void {
@@ -325,17 +456,17 @@ export class Fighter {
 
   private updateJointAngles(deltaTime: number, sceneTime: number): void {
     // Base guard joint angles will be modified by attack/defense overlays
-    // These will be applied at the end of the update
+    // This method is preserved for future expansion
   }
 
   private updateAttackAnimation(deltaTime: number): void {
-    // Attack animation is handled in the main update
-    // This is kept for organization and potential future expansion
+    // Attack animation is handled in updateCombatAnimations
+    // This method is preserved for future expansion
   }
 
   private updateDefenseAnimation(deltaTime: number): void {
-    // Defense animation is handled in the main update
-    // This is kept for organization and potential future expansion
+    // Defense animation is handled in updateCombatAnimations  
+    // This method is preserved for future expansion
   }
 
   private applyJointConstraints(): void {

@@ -230,6 +230,13 @@ export const STAMINA_PRESETS = {
     fatigueThreshold: 0.25,
     criticalThreshold: 0.08
   },
+
+  CONTENDER: {
+    maxStamina: 1.0,
+    recoveryRate: 0.05, // Balanced recovery
+    fatigueThreshold: 0.3,
+    criticalThreshold: 0.1
+  },
   
   ENDURANCE: {
     maxStamina: 1.2, // Higher max stamina
