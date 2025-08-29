@@ -10,17 +10,18 @@
       input, button { padding: 8px; border-radius: 8px; border: 1px solid #333; background: #17171d; color: #eee; }
       label { opacity: 0.8; }
       pre { white-space: pre-wrap; }
+      .hint { font-size: 12px; opacity: 0.7; }
     </style>
-    <!-- Use the same proxy config as the app -->
     <script src="/queue-floater-config.js"></script>
   </head>
   <body>
     <div class="hud">
       <label>Avatar URL (TikTok or any image)</label>
-      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%253D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5" />
+      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5" />
 
-      <label>Track URI</label>
+      <label>Track (accepts Spotify URI or open.spotify URL)</label>
       <input id="track" value="spotify:track:4NRXx6U3G3J3RkGfHh1Euh" />
+      <div class="hint">Examples: spotify:track:4NRXx6U3G3J3RkGfHh1Euh or https://open.spotify.com/track/4NRXx6U3G3J3RkGfHh1Euh</div>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button id="btn-fetch">Test Floater (fetch)</button>
@@ -31,7 +32,6 @@
     </div>
 
     <script src="/queue-floater.js"></script>
-    <!-- IMPORTANT: include the linker so queue calls are always detected -->
     <script src="/queue-linker.js"></script>
     <script>
       (function () {
@@ -54,7 +54,20 @@
           }
         }
 
-        // Sanity check library presence
+        // Convert open.spotify URLs to spotify:track: URIs for the queue endpoint/linker
+        function toSpotifyUri(input) {
+          if (!input) return input;
+          if (input.startsWith('spotify:')) return input;
+          try {
+            const u = new URL(input);
+            if (u.hostname.endsWith('spotify.com')) {
+              const parts = u.pathname.split('/').filter(Boolean);
+              if (parts[0] === 'track' && parts[1]) return 'spotify:track:' + parts[1];
+            }
+          } catch {}
+          return input;
+        }
+
         log('QueueFloater present:', typeof window.QueueFloater);
 
         QueueFloater.setConfig({
@@ -79,29 +92,31 @@
         }
 
         async function fireQueueViaFetch() {
-          const track = document.getElementById('track').value.trim();
+          const raw = document.getElementById('track').value.trim();
+          const uri = toSpotifyUri(raw);
           try {
-            await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), {
+            await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(uri), {
               method: 'POST',
               mode: 'no-cors'
             });
           } catch {}
-          log('queue fired (fetch, no-cors)');
+          log('queue fired (fetch, no-cors) ->', uri);
         }
 
         function fireQueueViaXHR() {
-          const track = document.getElementById('track').value.trim();
+          const raw = document.getElementById('track').value.trim();
+          const uri = toSpotifyUri(raw);
           try {
             const xhr = new XMLHttpRequest();
-            xhr.open('POST', 'https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), true);
+            xhr.open('POST', 'https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(uri), true);
             xhr.send();
           } catch {}
-          log('queue fired (XHR)');
+          log('queue fired (XHR) ->', uri);
         }
 
         document.getElementById('btn-fetch').addEventListener('click', async () => {
           linkToAvatar();
-          await new Promise(r => setTimeout(r, 50)); // tiny delay so linker can run first
+          await new Promise(r => setTimeout(r, 50));
           await fireQueueViaFetch();
         });
 
