@@ -117,8 +117,10 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <script type="module" src="/src/scenes/requests-scene.ts"></script>
-    <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
+    <!-- disabled: QueueFloater provides its own requests overlay -->
+    <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
+    <!-- disabled: QueueFloater includes its own Spotify queue bridge -->
+    <!-- <script type="module" src="/src/integrations/song-requests-bridge.ts"></script> -->
   </head>
   <body>
     <noscript>
