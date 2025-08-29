@@ -13,6 +13,7 @@ import { Cache } from '@utils/storage';
 import '@ui/responsive.css';
 import { initResponsiveHUD } from '@ui/responsive';
 import { registerBoxingScene } from './scenes/boxing';
+import './scenes/boxing-stylized';
 
 initResponsiveHUD();
 
