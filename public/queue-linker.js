@@ -17,10 +17,10 @@
     proxyImages: true,
     proxy,
     color: '#22cc88',
-    chatLinkTTLms: 60000,        // allow longer link window during testing
-    recentChatWindowMs: 60000,   // same window for last-chat association
-    debug: true,                 // enable to see logs in Console
-    defaultPfpUrl: ''            // optional: proxy('https://i.pravatar.cc/100?img=5')
+    chatLinkTTLms: 60000,
+    recentChatWindowMs: 60000,
+    debug: true,
+    defaultPfpUrl: ''
   });
 
   // Map likely TikTok fields → { userId, userName, pfpUrl }
@@ -55,6 +55,29 @@
     }
   };
 
+  // Convenience: queue with linking in one call (useful for testing from Console)
+  // window.queueWithLink(chatObj, 'spotify:track:ID', 'Bearer TOKEN' or just TOKEN)
+  window.queueWithLink = async function (chat, trackUri, token) {
+    if (!trackUri) {
+      console.warn('[QueueFloater] queueWithLink missing trackUri');
+      return;
+    }
+    window.linkNextTikTokUser(chat);
+    const authHeader = token
+      ? (String(token).toLowerCase().startsWith('bearer ') ? String(token) : 'Bearer ' + String(token))
+      : null;
+    const opts = { method: 'POST' };
+    if (authHeader) {
+      opts.headers = { Authorization: authHeader };
+    } else {
+      // Allow a no-cors test so the floater still pops even without a token
+      opts.mode = 'no-cors';
+    }
+    try {
+      await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(trackUri), opts);
+    } catch {}
+  };
+
   // Best-effort: wire any events your app might emit to auto-link
   const evtNames = [
     'tiktok:comment',
@@ -68,21 +91,13 @@
     window.addEventListener(evt, (e) => window.linkNextTikTokUser(e.detail));
   });
 
-  // Optional: quick console test helper
-  window.__testQueueFloater = async function () {
-    const avatar = 'https://i.pravatar.cc/100?img=3';
-    const proxied = proxy(avatar);
-    QueueFloater.linkNextQueueTo({
-      platform: 'tiktok',
-      userId: '123',
-      userName: 'Explicit Map',
-      pfpUrl: proxied
-    });
-    try {
-      await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent('spotify:track:4NRXx6U3G3J3RkGfHh1Euh'), {
-        method: 'POST',
-        mode: 'no-cors'
-      });
-    } catch {}
+  // Optional: remember the most recent TikTok chat, so you can call linkLastTikTokUser()
+  let __lastTikTokChat = null;
+  function remember(chat) { __lastTikTokChat = chat || __lastTikTokChat; }
+  window.addEventListener('tiktok:comment', (e) => remember(e.detail));
+  window.addEventListener('tiktok:request', (e) => remember(e.detail));
+  window.addEventListener('tiktok:message', (e) => remember(e.detail));
+  window.linkLastTikTokUser = function () {
+    if (__lastTikTokChat) window.linkNextTikTokUser(__lastTikTokChat);
   };
 })();

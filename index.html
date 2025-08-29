@@ -166,7 +166,7 @@
         }
       }
 
-      /* Safety: hide any legacy "Standalone Requests" / "Requests Floaters" overlay if it still loads */
+      /* Hide the legacy "Standalone Requests" / "Requests Floaters" overlay if it still renders */
       .standalone-requests,
       [data-overlay="standalone-requests"],
       [data-overlay="requests-floaters"] {
@@ -177,9 +177,9 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- IMPORTANT: disable legacy Requests overlay to avoid duplicate cards -->
+    <!-- IMPORTANT: the legacy Requests overlay is intentionally NOT loaded to avoid duplicate cards -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
-    <!-- Keep your chat/queue bridge enabled so commands still work -->
+    <!-- Chat/queue bridge (keep enabled so commands still work) -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
   </head>
 
@@ -257,29 +257,27 @@
           Bangers: "'Bangers', 'Comic Sans MS', system-ui, cursive",
           "Black Ops One": "'Black Ops One', Impact, system-ui, sans-serif",
           Pacifico: "'Pacifico', 'Brush Script MT', cursive",
-          "Press Start 2P": "'Press Start 2P', 'VT323', monospace",
+          "Press Start 2P": "'Press Start 2P', 'VT323', monospace"
         };
         const KEY = "lyrics-font-label";
-        const select = document.getElementById("lyrics-font");
-
+        const sel = document.getElementById("lyrics-font");
         function apply(label) {
           const stack = FONTS[label] || FONTS["Bebas Neue"];
           document.documentElement.style.setProperty("--lyrics-font", stack);
           try { localStorage.setItem(KEY, label); } catch {}
         }
-
         try {
           const saved = localStorage.getItem(KEY);
           if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
-            select.value = saved; apply(saved);
+            sel.value = saved;
+            apply(saved);
           } else {
-            apply(select.value);
+            apply(sel.value);
           }
         } catch {
-          apply(select.value);
+          apply(sel.value);
         }
-
-        select.addEventListener("change", (e) => apply(e.target.value));
+        sel.addEventListener("change", (e) => apply(e.target.value));
       })();
     </script>
 
@@ -294,10 +292,8 @@
           "Neon Bars",
           "Stained Glass Voronoi",
           "Emo Slashes"
-          /* intentionally omit "Requests Floaters" to avoid user selecting it */
         ];
         const sel = document.getElementById("scene-select");
-
         function externalScenes() {
           try {
             const d = window.__director;
@@ -307,7 +303,6 @@
           } catch {}
           return [];
         }
-
         function rebuildScenes() {
           if (!sel) return;
           const current = sel.value;
@@ -322,14 +317,12 @@
           });
           sel.value = all.indexOf(current) >= 0 ? current : "Auto";
         }
-
         rebuildScenes();
         const t = setInterval(() => {
           rebuildScenes();
           if (window.__director) clearInterval(t);
         }, 300);
         window.addEventListener("load", rebuildScenes);
-
         sel && sel.addEventListener("change", (e) => {
           const val = e.target && e.target.value ? String(e.target.value) : "Auto";
           try { window.__director && window.__director.requestScene(val); } catch {}
@@ -337,7 +330,7 @@
       })();
     </script>
 
-    <!-- Queue Floater (local) + TikTok chat linking -->
+    <!-- Queue Floater and integrations -->
     <script src="/queue-floater.js"></script>
     <script src="/disable-legacy-requests.js"></script>
     <script src="/queue-linker.js"></script>
