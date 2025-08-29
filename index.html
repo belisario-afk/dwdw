@@ -2,27 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0b0f" />
     <meta name="color-scheme" content="dark light" />
     <meta name="description" content="dwdw — Spotify-reactive visualizer with scenes, lyrics, and live requests." />
     <title>dwdw</title>
 
-    <!-- Favicons / Manifest (served by Vite from /public) -->
+    <!-- Favicons / Manifest -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
-    <!-- Fonts for lyrics overlay choices -->
+    <!-- Fonts for overlay choices -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bangers&family=Bebas+Neue&family=Black+Ops+One&family=Pacifico&family=Press+Start+2P&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Bebas+Neue&family=Black+Ops+One&family=Pacifico&family=Press+Start+2P&display=swap" rel="stylesheet" />
 
     <!-- App stylesheet -->
     <link rel="stylesheet" href="/style.css" />
@@ -116,7 +110,7 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- Disable duplicate overlay; QueueFloater handles visuals -->
+    <!-- IMPORTANT: disable the legacy Requests overlay to avoid duplicate cards -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
     <!-- Keep your chat/queue bridge enabled so commands still work -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
@@ -179,7 +173,7 @@
       </div>
     </div>
 
-    <!-- Prevent reference errors before Spotify SDK loads -->
+    <!-- Spotify SDK -->
     <script>
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function () {};
     </script>
@@ -214,7 +208,7 @@
       })();
     </script>
 
-    <!-- Scene dropdown only (director wires all buttons to prevent duplicates) -->
+    <!-- Scene dropdown only (director wires all buttons internally) -->
     <script>
       (function () {
         const BUILT_INS = [
@@ -268,7 +262,7 @@
       })();
     </script>
 
-    <!-- Queue Floater (local) + TikTok chat linking -->
+    <!-- Queue Floater (local file) -->
     <script src="/queue-floater.js"></script>
     <script>
       (function () {
@@ -277,75 +271,55 @@
           return;
         }
 
+        // Proxy helper for avatars/album art to avoid CORS or hotlink issues
         function proxy(u) {
           return 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u || '');
         }
 
-        // Enable debug temporarily to verify linkage timing
+        // Configure QueueFloater
         QueueFloater.setConfig({
           proxyImages: true,
           proxy,
           color: '#22cc88',
           chatLinkTTLms: 20000,
-          recentChatWindowMs: 20000,
-          debug: true,
-          // Optional: a fallback avatar so you always see a picture even if mapping fails
-          defaultPfpUrl: proxy('https://i.pravatar.cc/100?img=5')
+          recentChatWindowMs: 20000
+          // debug: true
+          // defaultPfpUrl: proxy('https://i.pravatar.cc/100?img=5')
         });
 
-        // Map likely TikTok fields → { userId, userName, pfpUrl }
-        function mapTikTokUser(chat) {
-          const user = chat && (chat.user || chat);
-          const userId =
-            user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
-          const userName =
-            user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
-            chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
-            'TikTok User';
-          const pfpRaw =
-            user?.avatar || user?.avatarUrl || user?.profilePictureUrl ||
-            chat?.avatar || chat?.avatarUrl || chat?.profilePictureUrl || '';
-          const pfpUrl = pfpRaw ? proxy(pfpRaw) : '';
-          return { platform: 'tiktok', userId, userName, pfpUrl };
-        }
-
-        function linkNextFromChat(chat) {
+        // Expose a helper you can call RIGHT BEFORE the Spotify queue POST
+        window.linkNextTikTokUser = function (chat) {
           try {
-            const payload = mapTikTokUser(chat);
+            const user = chat && (chat.user || chat);
+
+            const userId =
+              user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
+
+            const userName =
+              user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
+              chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
+              'TikTok User';
+
+            // Try many common TikTok avatar fields; proxy to ensure it loads
+            const raw =
+              user?.profilePictureUrl || user?.avatarLarger || user?.avatarMedium || user?.avatarThumb ||
+              chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
+
+            const pfpUrl = raw ? proxy(raw) : '';
+
+            const payload = { platform: 'tiktok', userId, userName, pfpUrl };
             QueueFloater.linkNextQueueTo(payload);
             console.debug('[QueueFloater] linked next queue to', payload);
           } catch (e) {
             console.warn('[QueueFloater] linkNextQueueTo failed', e);
           }
-        }
-
-        // Listen to a broad set of possible events from your chat bridge
-        const linkEvents = [
-          'tiktok:comment',
-          'tiktok:request',
-          'tiktok:message',
-          'chat:command',
-          'sr:command',
-          'songrequest:chat'
-        ];
-        linkEvents.forEach((evt) => {
-          window.addEventListener(evt, (e) => linkNextFromChat(e.detail));
-        });
-
-        // Expose a helper your chat code can call right before queue POST:
-        // window.linkNextTikTokUser({ user, userName, pfpUrl, ... })
-        window.linkNextTikTokUser = function (payloadOrChat) {
-          linkNextFromChat(payloadOrChat);
         };
 
-        // If your bridge exposes a global pubsub, try to hook it (best-effort, safe if absent)
-        try {
-          const br = window.__bridge || window.bridge || window.requestsBridge;
-          if (br && typeof br.on === 'function') {
-            br.on('tiktok:comment', linkNextFromChat);
-            br.on('tiktok:request', linkNextFromChat);
-          }
-        } catch {}
+        // Best-effort wiring for events your bridge might emit
+        const evtNames = ['tiktok:comment', 'tiktok:request', 'tiktok:message', 'chat:command', 'sr:command', 'songrequest:chat'];
+        evtNames.forEach((evt) => {
+          window.addEventListener(evt, (e) => window.linkNextTikTokUser(e.detail));
+        });
       })();
     </script>
   </body>
