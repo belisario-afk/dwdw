@@ -14,7 +14,7 @@ import '@ui/responsive.css';
 import { initResponsiveHUD } from '@ui/responsive';
 import './scenes/requests-scene';
 import './boot/register-requests-scene'
-import './debug/requests-floaters-standalone';
+import { registerBoxingScene } from './scenes/boxing';
 
 initResponsiveHUD();
 
@@ -85,6 +85,7 @@ function readProxyURL(): string {
   const api = new SpotifyAPI(auth);
   const player = new PlayerController(auth, api);
   const director = new VisualDirector(api);
+  registerBoxingScene(director);
   const vj = new VJ(director, player);
   (window as any).director = director;
 
@@ -239,7 +240,7 @@ function readProxyURL(): string {
         </div>
 
         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          <input id="tiktok-username" type="text" placeholder="TikTok username (uniqueId or profile URL)" style="flex:1 1 160px; min-width:160px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
+          <input id="tiktok-username" type="text" placeholder="TikTok username (uniqueId or profile URL)" style="flex:1 1 160px; min-width:160px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720;color:#e8e8ef;" />
           <button id="btn-tt-connect">Connect</button>
           <button id="btn-tt-disconnect">Disconnect</button>
         </div>
@@ -259,8 +260,8 @@ function readProxyURL(): string {
         </div>
 
         <div style="display:flex; gap:6px; align-items:center;">
-          <input id="manual-user" type="text" placeholder="Your name (test)" style="flex:0 0 120px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
-          <input id="manual-cmd" type="text" placeholder="e.g., !play song -artist" style="flex:1 1 auto; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720; color:#fff;" />
+          <input id="manual-user" type="text" placeholder="Your name (test)" style="flex:0 0 120px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720;color:#e8e8ef;" />
+          <input id="manual-cmd" type="text" placeholder="e.g., !play song -artist" style="flex:1 1 auto; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:#171720;color:#e8e8ef;" />
           <button id="btn-simulate">Send</button>
         </div>
 
@@ -369,7 +370,7 @@ function readProxyURL(): string {
     if (lower.startsWith('!skip')) return { type: 'skip' };
     if (lower.startsWith('!pause')) return { type: 'pause' };
     if (lower.startsWith('!resume') || lower.startsWith('!playback')) return { type: 'resume' };
-    if (lower.startsWith('!volume') || lower.startsWith('!vol')) { const num = Number(lower.replace(/!volume|!vol/g, '').trim()); if (Number.isFinite(num)) return { type: 'volume', value: num }; return null; }
+    if (lower.startsWith('!volume') || lower.startsWith('!vol')) { const num = Number(lower.replace(/!volume|!vol/g, '').trim()); if (Number.isFinite(num)) return { type: 'volume', value: num }; }
     return null;
   }
 
