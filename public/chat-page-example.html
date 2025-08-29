@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Chat + QueueFloater wiring example</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <!-- Your chat UI goes here -->
+
+  <!-- Load order is important -->
+  <script src="/queue-floater-config.js"></script>
+  <script src="/queue-floater.js"></script>
+  <script src="/queue-floater-boot.js"></script>
+
+  <!-- Choose ONE of these strategies (you can keep both; event-linker is most bulletproof) -->
+  <script src="/queue-floater-autolink.js"></script>           <!-- provides window.QueueFloaterMarkNextRequester -->
+  <script src="/queue-floater-autolink-events.js"></script>    <!-- optional: marks from legacy events -->
+  <script src="/queue-floater-event-linker.js"></script>       <!-- direct link from events (no interception needed) -->
+
+  <!-- Optional helper if you can call from your chat handler -->
+  <script src="/qf-mark.js"></script>
+
+  <!-- Your existing linker/overlay script -->
+  <script src="/queue-linker.js"></script>
+
+  <script>
+    // Example: hooking your chat handler (replace with your real code)
+    // When you detect a song request, call qfMarkFromChat BEFORE you POST to Spotify
+    function onChatSongRequest(chat) {
+      if (window.qfMarkFromChat) qfMarkFromChat(chat);
+      // Then do your existing queue call (fetch/XHR) to Spotify...
+    }
+  </script>
+</body>
+</html>
