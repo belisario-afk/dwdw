@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>QueueFloater Standalone Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { height: 100%; margin: 0; background: #0b0b0f; color: #eee; font: 14px/1.3 system-ui, sans-serif; }
+      .hud { position: fixed; inset: 16px; display: grid; gap: 8px; max-width: 640px; }
+      input, button { padding: 8px; border-radius: 8px; border: 1px solid #333; background: #17171d; color: #eee; }
+      label { opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <div class="hud">
+      <label>Avatar URL (TikTok or any image)</label>
+      <input id="avatar" value="https://i.pravatar.cc/100?img=12" />
+
+      <label>Track URI</label>
+      <input id="track" value="spotify:track:4NRXx6U3G3J3RkGfHh1Euh" />
+
+      <div>
+        <button id="btn">Test Floater</button>
+      </div>
+
+      <pre id="log"></pre>
+    </div>
+
+    <script src="/queue-floater.js"></script>
+    <script>
+      (function () {
+        const log = (...a) => {
+          const el = document.getElementById('log');
+          el.textContent += a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ') + '\n';
+          console.log(...a);
+        };
+
+        // Optional: set your Worker URL here once deployed:
+        // window.QUEUE_FLOATER_IMAGE_PROXY = 'https://YOUR-SUBDOMAIN.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
+
+        function proxy(u) {
+          if (window.QUEUE_FLOATER_IMAGE_PROXY) {
+            return window.QUEUE_FLOATER_IMAGE_PROXY + encodeURIComponent(u || '');
+          }
+          try {
+            const url = new URL(u);
+            const hostAndPath = url.host + url.pathname + (url.search || '');
+            return 'https://images.weserv.nl/?url=' + encodeURIComponent(hostAndPath);
+          } catch {
+            return u;
+          }
+        }
+
+        QueueFloater.setConfig({
+          debug: true,
+          proxyImages: true,
+          proxy,
+          chatLinkTTLms: 60000,
+          recentChatWindowMs: 60000,
+          color: '#22cc88'
+        });
+
+        document.getElementById('btn').addEventListener('click', async () => {
+          const avatar = document.getElementById('avatar').value.trim();
+          const track = document.getElementById('track').value.trim();
+          const proxied = proxy(avatar);
+
+          QueueFloater.linkNextQueueTo({
+            platform: 'tiktok',
+            userId: '123',
+            userName: 'Standalone Test',
+            pfpUrl: proxied
+          });
+          log('linked to', { pfpUrl: proxied });
+
+          try {
+            await fetch('https://api.spotify.com/v1/me/player/queue?uri=' + encodeURIComponent(track), { method: 'POST', mode: 'no-cors' });
+          } catch {}
+
+          log('queue fired (no-cors)');
+        });
+      })();
+    </script>
+  </body>
+</html>
