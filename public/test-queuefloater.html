@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QueueFloater Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #0b0b0f; 
+            color: #e8e8ef; 
+        }
+        .test-section { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border: 1px solid #333; 
+            border-radius: 8px; 
+        }
+        button { 
+            background: #22cc88; 
+            color: white; 
+            border: none; 
+            padding: 10px 15px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            margin: 5px; 
+        }
+        #console-output { 
+            background: #1a1a21; 
+            padding: 10px; 
+            border-radius: 5px; 
+            font-family: monospace; 
+            white-space: pre-wrap; 
+            max-height: 400px; 
+            overflow-y: auto; 
+        }
+    </style>
+</head>
+<body>
+    <h1>QueueFloater Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Configuration Test</h2>
+        <p>Check if QueueFloater is loaded and configured properly.</p>
+        <button onclick="testConfig()">Test Configuration</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Chat-to-Queue Link Test</h2>
+        <p>Test chat user linking functionality.</p>
+        <button onclick="testChatLink()">Test Chat Link</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Song Request Test</h2>
+        <p>Test full song request flow with avatar.</p>
+        <button onclick="testSongRequest()">Test Song Request</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <div id="console-output"></div>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+
+    <!-- Load QueueFloater in the same order as index.html -->
+    <script>
+        window.QUEUE_FLOATER_IMAGE_PROXY = 'https://image-proxy-robust.tikusers862.workers.dev/image-proxy?url=';
+    </script>
+    <script src="/queue-floater-config.js"></script>
+    <script src="/queue-floater.js"></script>
+    <script src="/queue-floater-boot.js"></script>
+    <script src="/queue-floater-autolink.js"></script>
+    <script src="/queue-floater-event-linker.js"></script>
+    <script src="/queue-linker.js"></script>
+
+    <script>
+        const consoleOutput = document.getElementById('console-output');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            consoleOutput.textContent += `[${timestamp}] ${message}\n`;
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearConsole() {
+            consoleOutput.textContent = '';
+        }
+        
+        function testConfig() {
+            log('=== Configuration Test ===');
+            
+            if (typeof window.QueueFloater !== 'undefined') {
+                log('✓ QueueFloater is loaded');
+                
+                if (typeof window.QueueFloaterMarkNextRequester === 'function') {
+                    log('✓ QueueFloaterMarkNextRequester is available');
+                } else {
+                    log('✗ QueueFloaterMarkNextRequester is not available');
+                }
+                
+                if (window.QUEUE_FLOATER_IMAGE_PROXY) {
+                    log(`✓ Image proxy configured: ${window.QUEUE_FLOATER_IMAGE_PROXY}`);
+                } else {
+                    log('✗ Image proxy not configured');
+                }
+            } else {
+                log('✗ QueueFloater is not loaded');
+            }
+        }
+        
+        function testChatLink() {
+            log('=== Chat Link Test ===');
+            
+            if (typeof window.QueueFloaterMarkNextRequester === 'function') {
+                const testUser = {
+                    userId: 'test123',
+                    userName: 'TestUser',
+                    avatarUrl: 'https://i.pravatar.cc/128?img=12',
+                    platform: 'tiktok'
+                };
+                
+                window.QueueFloaterMarkNextRequester(testUser);
+                log(`✓ Marked next requester: ${testUser.userName}`);
+                
+                // Simulate the songrequest:chat event
+                window.dispatchEvent(new CustomEvent('songrequest:chat', {
+                    detail: testUser
+                }));
+                log('✓ Dispatched songrequest:chat event');
+            } else {
+                log('✗ QueueFloaterMarkNextRequester not available');
+            }
+        }
+        
+        function testSongRequest() {
+            log('=== Song Request Test ===');
+            
+            // First, mark a requester
+            if (typeof window.QueueFloaterMarkNextRequester === 'function') {
+                const testUser = {
+                    userId: 'user456',
+                    userName: 'TikTokUser',
+                    avatarUrl: 'https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=9640&refresh_token=9a7b12b8&x-expires=1756612800&x-signature=3YOiJSho8xmtWHDP2F1XBNSuMjk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=useast5',
+                    platform: 'tiktok'
+                };
+                
+                window.QueueFloaterMarkNextRequester(testUser);
+                log(`✓ Marked next requester: ${testUser.userName}`);
+                
+                // Simulate the song request bridge behavior
+                setTimeout(() => {
+                    // Emit songrequest:chat event (like our bridge modification)
+                    window.dispatchEvent(new CustomEvent('songrequest:chat', {
+                        detail: {
+                            platform: 'tiktok',
+                            userId: testUser.userName,
+                            userName: testUser.userName,
+                            pfpUrl: testUser.avatarUrl
+                        }
+                    }));
+                    log('✓ Dispatched songrequest:chat event');
+                    
+                    // Then emit the main song request
+                    setTimeout(() => {
+                        window.dispatchEvent(new CustomEvent('songrequest', {
+                            detail: {
+                                userName: testUser.userName,
+                                songTitle: 'Test Song',
+                                albumArtUrl: 'https://i.scdn.co/image/ab67616d0000b273f4bc8e16a3c6ccc0b4e99d73',
+                                pfpUrl: testUser.avatarUrl
+                            }
+                        }));
+                        log('✓ Dispatched songrequest event');
+                        log('🎵 Check for floater on screen!');
+                    }, 100);
+                }, 100);
+            } else {
+                log('✗ QueueFloaterMarkNextRequester not available');
+            }
+        }
+        
+        // Log when scripts load
+        window.addEventListener('load', () => {
+            log('Page loaded, testing configuration...');
+            setTimeout(testConfig, 500);
+        });
+        
+        // Listen for QueueFloater events
+        window.addEventListener('songrequest', (e) => {
+            log(`📨 Received songrequest event: ${e.detail.userName} - ${e.detail.songTitle}`);
+        });
+        
+        window.addEventListener('songrequest:chat', (e) => {
+            log(`💬 Received songrequest:chat event: ${e.detail.userName}`);
+        });
+    </script>
+</body>
+</html>
