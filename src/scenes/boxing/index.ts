@@ -1,6 +1,8 @@
 // Simple "Boxing" scene with two fighters and a ring.
-// Audio reactivity comes from onBeat/onDownbeat hooks fired by the director.
-// All state is kept inside this module.
+// Reacts to beats for punch/flash, and renders album art discs on each boxer.
+// Listens for:
+//  - 'song:nowplaying' | 'song:play' | 'spotify:nowPlaying' | 'songchanged'  -> champ (left)
+//  - 'queue:next' | 'nextTrack' | 'queueUpdated' -> challenger (right)
 
 import type { VisualDirector, SceneDef } from '@controllers/director';
 
@@ -11,6 +13,15 @@ type Boxer = {
   hue: number;
 };
 
+type TrackDetail = {
+  title?: string;
+  artist?: string;
+  durationMs?: number;
+  progressMs?: number;
+  albumArtUrl?: string;
+  id?: string;
+};
+
 export function registerBoxingScene(director: VisualDirector) {
   const state = {
     left: { side: 'left', idlePhase: Math.random() * Math.PI * 2, punchT: 0, hue: 210 } as Boxer, // blue
@@ -18,7 +29,75 @@ export function registerBoxingScene(director: VisualDirector) {
     beatFlip: false,
     flash: 0, // ring flash on downbeats/punch impacts
     camShake: 0,
+    champUrl: '' as string,
+    nextUrl: '' as string,
+    champImg: null as HTMLImageElement | null,
+    nextImg: null as HTMLImageElement | null,
   };
+
+  const imgCache = new Map<string, HTMLImageElement>();
+  function loadImage(url?: string | null): Promise<HTMLImageElement | null> {
+    if (!url) return Promise.resolve(null);
+    const u = url.trim();
+    if (!u) return Promise.resolve(null);
+    const cached = imgCache.get(u);
+    if (cached) return Promise.resolve(cached);
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        imgCache.set(u, img);
+        resolve(img);
+      };
+      img.onerror = () => resolve(null);
+      img.src = u;
+    });
+  }
+
+  function pickAlbumUrl(detail: any): string {
+    if (!detail) return '';
+    // Common shapes
+    if (typeof detail.albumArtUrl === 'string') return detail.albumArtUrl;
+    const album = detail.album || detail.track?.album || detail.item?.album;
+    const images = album?.images;
+    if (Array.isArray(images) && images.length) {
+      return images[1]?.url || images[0]?.url || '';
+    }
+    if (typeof detail.image === 'string') return detail.image;
+    return '';
+  }
+
+  async function setChamp(detail: any) {
+    const url = pickAlbumUrl(detail);
+    state.champUrl = url;
+    state.champImg = await loadImage(url);
+  }
+  async function setNext(detail: any) {
+    const url = pickAlbumUrl(detail);
+    state.nextUrl = url;
+    state.nextImg = await loadImage(url);
+  }
+
+  // Wire window-level events so any part of the app can update the boxers
+  const onChamp = (e: Event) => setChamp((e as CustomEvent).detail);
+  const onNext = (e: Event) => setNext((e as CustomEvent).detail);
+  const onQueueUpdated = (e: Event) => {
+    const detail = (e as CustomEvent).detail;
+    let nxt: any = null;
+    if (Array.isArray(detail) && detail.length > 0) nxt = detail[0];
+    else if (Array.isArray(detail?.queue) && detail.queue.length > 0) nxt = detail.queue[0];
+    else if (detail?.next) nxt = detail.next;
+    if (nxt) setNext(nxt);
+  };
+
+  window.addEventListener('song:nowplaying', onChamp);
+  window.addEventListener('song:play', onChamp);
+  window.addEventListener('spotify:nowPlaying', onChamp);
+  window.addEventListener('songchanged', onChamp);
+
+  window.addEventListener('queue:next', onNext);
+  window.addEventListener('nextTrack', onNext);
+  window.addEventListener('queueUpdated', onQueueUpdated);
 
   const scene: SceneDef = {
     name: 'Boxing',
@@ -39,8 +118,8 @@ export function registerBoxingScene(director: VisualDirector) {
 
       drawBackground(ctx, w, h, state.flash);
       drawRing(ctx, w, h);
-      drawBoxer(ctx, w, h, time, dt, state.left);
-      drawBoxer(ctx, w, h, time, dt, state.right);
+      drawBoxer(ctx, w, h, time, dt, state.left, state.champImg);
+      drawBoxer(ctx, w, h, time, dt, state.right, state.nextImg);
       drawHUD(ctx, w, h);
       ctx.restore();
     },
@@ -130,7 +209,8 @@ function drawBoxer(
   h: number,
   time: number,
   dt: number,
-  boxer: Boxer
+  boxer: Boxer,
+  albumImg: HTMLImageElement | null
 ) {
   const cx = w * 0.5;
   const floorTop = h * 0.32 + h * 0.1;
@@ -175,6 +255,12 @@ function drawBoxer(
   roundRect(ctx, bodyX, bodyY, bodyW, bodyH, Math.min(10, bodyW * 0.18));
   ctx.fill();
 
+  // Album disc on chest
+  const discR = Math.min(bodyW * 0.42, h * 0.055);
+  const discX = bodyX + bodyW * 0.5 + z * discR * 0.1;
+  const discY = bodyY + bodyH * 0.42;
+  drawAlbumDisc(ctx, discX, discY, discR, albumImg, boxer.hue);
+
   // Head
   const headR = Math.min(bodyW * 0.38, h * 0.045);
   const headX = bodyX + bodyW * 0.5 + z * headR * 0.1;
@@ -202,6 +288,50 @@ function drawBoxer(
   roundRect(ctx, baseX - shW / 2, baseY + h * 0.06, shW, shH, shH / 2);
   ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+function drawAlbumDisc(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  img: HTMLImageElement | null,
+  hue: number
+) {
+  // Backing ring
+  ctx.fillStyle = `hsla(${hue}, 70%, 40%, 0.65)`;
+  circle(ctx, x, y, r + 4);
+
+  // Image or fallback
+  if (img && img.complete && img.naturalWidth > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    // cover-fit draw
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const s = Math.max((2 * r) / iw, (2 * r) / ih);
+    const dw = iw * s;
+    const dh = ih * s;
+    ctx.drawImage(img, x - dw / 2, y - dh / 2, dw, dh);
+    ctx.restore();
+
+    // glossy highlight
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#fff';
+    circle(ctx, x - r * 0.3, y - r * 0.35, r * 0.6);
+    ctx.globalAlpha = 1;
+  } else {
+    // fallback gradient
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+    g.addColorStop(0, `hsla(${hue}, 80%, 65%, 1)`);
+    g.addColorStop(1, `hsla(${hue}, 60%, 42%, 1)`);
+    ctx.fillStyle = g;
+    circle(ctx, x, y, r);
+  }
 }
 
 function drawArm(

@@ -63,6 +63,19 @@ function readProxyURL(): string {
   return v.replace(/\/+$/, '');
 }
 
+// Helper to shape track for events/album art consumers
+function mapTrackForEvents(track: any) {
+  if (!track) return null;
+  return {
+    id: track.id,
+    title: track.name || track.title,
+    artist: (track.artists || []).map((a: any) => a.name).join(', '),
+    durationMs: track.duration_ms ?? track.durationMs,
+    progressMs: track.progress_ms ?? track.progressMs,
+    albumArtUrl: track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || null
+  };
+}
+
 (async function boot() {
   ensureRoute();
 
@@ -128,6 +141,13 @@ function readProxyURL(): string {
             director.setAlbumArt(img).catch(() => {});
           } catch {}
         }
+
+        // Notify scenes/overlays about now playing (for album art)
+        const shaped = mapTrackForEvents(track);
+        if (shaped) {
+          window.dispatchEvent(new CustomEvent('song:nowplaying', { detail: shaped }));
+        }
+
         await director.onTrack(track).catch(() => {});
       }
     }
@@ -150,7 +170,7 @@ function readProxyURL(): string {
   if (auth.getAccessToken()) startAuthedFlows();
   auth.on('tokens', (t) => { if (t) { director.setFeaturesEnabled(true); startAuthedFlows(); } else stopAuthedFlows(); });
 
-  // ——— TikTok bridge (proxy-only) ———
+  // ——— TikTok bridge (proxy-only) and simple queue ———
 
   type QueueItem = { uri: string; title: string; artist: string; albumArtUrl?: string; requestedBy?: string; };
   const queueState: { items: QueueItem[] } = { items: [] };
@@ -194,6 +214,12 @@ function readProxyURL(): string {
         </div>
       </div>
     `).join('');
+
+    // Fire queueUpdated each render so listeners can pick first item as "next"
+    window.dispatchEvent(new CustomEvent('queueUpdated', { detail: queueState.items.slice() }));
+    if (queueState.items.length > 0) {
+      window.dispatchEvent(new CustomEvent('queue:next', { detail: queueState.items[0] }));
+    }
   }
   function setTTStatus(text: string) { if (ttStatusEl) ttStatusEl.textContent = text; }
   function setProxyLabel() {
@@ -385,6 +411,11 @@ function readProxyURL(): string {
     const optimistic: QueueItem = { ...item, requestedBy };
     queueState.items.push(optimistic); if (queueState.items.length > 50) queueState.items.shift();
     renderQueueList();
+
+    // Fire immediate queue events for listeners (e.g., boxing scene)
+    window.dispatchEvent(new CustomEvent('queueUpdated', { detail: queueState.items.slice() }));
+    window.dispatchEvent(new CustomEvent('queue:next', { detail: queueState.items[0] }));
+
     try { await addToQueue(item.uri); setLastAction(`Queued: ${item.title} • ${item.artist}${requestedBy ? ` (by ${requestedBy})` : ''}`); }
     catch { queueState.items = queueState.items.filter(i => !(i.uri === optimistic.uri && i.requestedBy === optimistic.requestedBy)); renderQueueList(); setLastAction(`Failed to queue track`); }
   }
@@ -395,9 +426,9 @@ function readProxyURL(): string {
     try {
       switch (parsed.type) {
         case 'play': await enqueueByQuery(parsed.query, user); break;
-        case 'skip': await skipTrack(); setLastAction(`Skipped (by ${user})`); break;
-        case 'pause': await pausePlayback(); setLastAction(`Paused (by ${user})`); break;
-        case 'resume': await resumePlayback(); setLastAction(`Resumed (by ${user})`); break;
+        case 'skip': await skipTrack(); setLastAction(`Skipped (by ${user})`); window.dispatchEvent(new CustomEvent('track:skip')); break;
+        case 'pause': await pausePlayback(); setLastAction(`Paused (by ${user})`); window.dispatchEvent(new CustomEvent('track:pause')); break;
+        case 'resume': await resumePlayback(); setLastAction(`Resumed (by ${user})`); window.dispatchEvent(new CustomEvent('track:resume')); break;
         case 'volume': await setVolume(parsed.value); setLastAction(`Volume set to ${Math.round(parsed.value)}% (by ${user})`); break;
       }
     } catch { setLastAction(`Command failed`); }
