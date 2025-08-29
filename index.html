@@ -148,7 +148,7 @@
           gap: 6px;
           padding: 8px;
         }
-        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
+        #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !Important; }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -326,7 +326,10 @@
 
     <!-- Queue Floater and integrations -->
     <script src="/queue-floater.js"></script>
-    <script src="/disable-legacy-requests.js"></script>
+    <script src="/queue-floater-boot.js"></script>
+    <script src="/queue-floater-autolink.js"></script>
+    <script src="/queue-floater-event-linker.js"></script>
     <script src="/queue-linker.js"></script>
+    <script src="/disable-legacy-requests.js"></script>
   </body>
 </html>
