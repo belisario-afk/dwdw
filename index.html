@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Meta -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0b0f" />
@@ -8,35 +9,43 @@
     <meta name="description" content="dwdw — Spotify-reactive visualizer with scenes, lyrics, and live requests." />
     <title>dwdw</title>
 
-    <!-- Favicons / Manifest -->
+    <!-- Icons / Manifest -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
-    <!-- Fonts for overlay choices -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Bebas+Neue&family=Black+Ops+One&family=Pacifico&family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bangers&family=Bebas+Neue&family=Black+Ops+One&family=Pacifico&family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
 
     <!-- App stylesheet -->
     <link rel="stylesheet" href="/style.css" />
 
+    <!-- Styles (kept verbose to match your larger index) -->
     <style>
       :root {
         --bg: #0b0b0f;
         --fg: #e8e8ef;
         --muted: #a0a0b2;
+
         --hud-gap: clamp(8px, 1.8vmin, 14px);
         --hud-radius: clamp(10px, 2vmin, 14px);
         --hud-font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
         --hud-surface: rgba(11, 11, 15, 0.7);
         --hud-border: 1px solid rgba(255,255,255,0.06);
         --hud-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+
         --safe-top: env(safe-area-inset-top, 0px);
         --safe-right: env(safe-area-inset-right, 0px);
         --safe-bottom: env(safe-area-inset-bottom, 0px);
         --safe-left: env(safe-area-inset-left, 0px);
       }
+
       html, body {
         height: 100%;
         margin: 0;
@@ -46,7 +55,13 @@
         overflow: hidden;
         -webkit-text-size-adjust: 100%;
       }
-      #canvas-host { position: fixed; inset: 0; overflow: hidden; }
+
+      #canvas-host {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        z-index: 0;
+      }
 
       .toolbar {
         position: fixed;
@@ -54,67 +69,121 @@
         left: max(12px, var(--safe-left));
         right: max(12px, var(--safe-right));
         margin: 0 auto;
-        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 10px 12px;
+
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+
+        padding: 10px 12px;
         background: var(--hud-surface);
         backdrop-filter: blur(12px) saturate(120%);
+
         border: var(--hud-border);
         border-radius: var(--hud-radius);
         box-shadow: var(--hud-shadow);
         z-index: 9999;
+
         pointer-events: auto;
         -webkit-tap-highlight-color: transparent;
       }
-      .left, .center, .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+      .left, .center, .right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
       .left  { flex: 1 1 320px; justify-content: flex-start; }
       .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
-      button, select, input[type="range"] {
+      button, select, input[type="range"], input[type="text"] {
         color: var(--fg);
         background: #1a1a21;
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 8px;
         padding: 6px 10px;
       }
+
       button { cursor: pointer; }
       button:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+
       .hidden { display: none !important; }
       .label { color: var(--muted); white-space: nowrap; }
       .spacer { width: 8px; }
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
+      .kv {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      @media (max-width: 1024px) {
+        #seek { width: min(44vw, 560px); }
+      }
+
       @media (max-width: 768px) {
         .toolbar {
-          top: auto; bottom: max(10px, var(--safe-bottom));
-          left: max(10px, var(--safe-left)); right: max(10px, var(--safe-right));
-          justify-content: center; gap: 8px; padding: 10px; border-radius: calc(var(--hud-radius) + 2px);
+          top: auto;
+          bottom: max(10px, var(--safe-bottom));
+          left: max(10px, var(--safe-left));
+          right: max(10px, var(--safe-right));
+          justify-content: center;
+          gap: 8px;
+          padding: 10px;
+          border-radius: calc(var(--hud-radius) + 2px);
         }
+
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
+
         .left, .center, .right { flex-wrap: wrap; gap: 8px; }
         #seek { width: 100%; max-width: 100%; }
         #volume { width: min(55vw, 240px); }
       }
+
       @media (max-width: 380px) {
-        .toolbar { left: max(8px, var(--safe-left)); right: max(8px, var(--safe-right)); gap: 6px; padding: 8px; }
+        .toolbar {
+          left: max(8px, var(--safe-left));
+          right: max(8px, var(--safe-right));
+          gap: 6px;
+          padding: 8px;
+        }
         #btn-crossfade, #btn-vj, #btn-quality, #btn-accessibility, #btn-record { display: none !important; }
       }
+
       @media (prefers-reduced-motion: reduce) {
-        * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
+      /* Safety: hide any legacy "Standalone Requests" overlay if it still loads */
+      .standalone-requests,
+      [data-overlay="standalone-requests"],
+      [data-overlay="requests-floaters"] {
+        display: none !important;
       }
     </style>
 
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- IMPORTANT: disable the legacy Requests overlay to avoid duplicate cards -->
+    <!-- IMPORTANT: disable legacy Requests overlay to avoid duplicate cards -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
     <!-- Keep your chat/queue bridge enabled so commands still work -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
   </head>
+
   <body>
     <noscript>
       <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0b0f;color:#fff;">
@@ -122,8 +191,10 @@
       </div>
     </noscript>
 
+    <!-- Visuals host -->
     <div id="canvas-host" aria-hidden="true"></div>
 
+    <!-- Toolbar HUD -->
     <div class="toolbar" role="region" aria-label="Player controls">
       <div class="left">
         <button id="btn-login" title="Login with Spotify">Login</button>
@@ -173,7 +244,7 @@
       </div>
     </div>
 
-    <!-- Spotify SDK -->
+    <!-- Prevent reference errors before Spotify SDK loads -->
     <script>
       window.onSpotifyWebPlaybackSDKReady = window.onSpotifyWebPlaybackSDKReady || function () {};
     </script>
@@ -191,11 +262,13 @@
         };
         const KEY = "lyrics-font-label";
         const select = document.getElementById("lyrics-font");
+
         function apply(label) {
           const stack = FONTS[label] || FONTS["Bebas Neue"];
           document.documentElement.style.setProperty("--lyrics-font", stack);
           try { localStorage.setItem(KEY, label); } catch {}
         }
+
         try {
           const saved = localStorage.getItem(KEY);
           if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
@@ -203,12 +276,15 @@
           } else {
             apply(select.value);
           }
-        } catch { apply(select.value); }
+        } catch {
+          apply(select.value);
+        }
+
         select.addEventListener("change", (e) => apply(e.target.value));
       })();
     </script>
 
-    <!-- Scene dropdown only (director wires all buttons internally) -->
+    <!-- Scene dropdown (names only; the director wires actions internally) -->
     <script>
       (function () {
         const BUILT_INS = [
@@ -262,7 +338,7 @@
       })();
     </script>
 
-    <!-- Queue Floater (local file) -->
+    <!-- Queue Floater: load local file and wire chat→queue linkage -->
     <script src="/queue-floater.js"></script>
     <script>
       (function () {
@@ -271,7 +347,7 @@
           return;
         }
 
-        // Proxy helper for avatars/album art to avoid CORS or hotlink issues
+        // Proxy helper for avatars/album art
         function proxy(u) {
           return 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u || '');
         }
@@ -281,33 +357,37 @@
           proxyImages: true,
           proxy,
           color: '#22cc88',
-          chatLinkTTLms: 20000,
-          recentChatWindowMs: 20000
-          // debug: true
-          // defaultPfpUrl: proxy('https://i.pravatar.cc/100?img=5')
+          chatLinkTTLms: 60000,        // long TTL for testing; reduce to ~15000–20000 for production
+          recentChatWindowMs: 60000,   // same window for “recent chat” association
+          // debug: true,               // enable for verbose logs
+          defaultPfpUrl: ''            // optional fallback avatar via proxy('https://...png')
         });
 
-        // Expose a helper you can call RIGHT BEFORE the Spotify queue POST
+        // Map likely TikTok fields → { userId, userName, pfpUrl }
+        function mapTikTokUser(chat) {
+          const user = chat && (chat.user || chat);
+
+          const userId =
+            user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
+
+          const userName =
+            user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
+            chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
+            'TikTok User';
+
+          // Try many common TikTok avatar fields; proxy to ensure it loads
+          const raw =
+            user?.profilePictureUrl || user?.avatarLarger || user?.avatarMedium || user?.avatarThumb ||
+            chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
+
+          const pfpUrl = raw ? proxy(raw) : '';
+          return { platform: 'tiktok', userId, userName, pfpUrl };
+        }
+
+        // Expose a helper you can call RIGHT BEFORE your POST to /v1/me/player/queue
         window.linkNextTikTokUser = function (chat) {
           try {
-            const user = chat && (chat.user || chat);
-
-            const userId =
-              user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
-
-            const userName =
-              user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
-              chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
-              'TikTok User';
-
-            // Try many common TikTok avatar fields; proxy to ensure it loads
-            const raw =
-              user?.profilePictureUrl || user?.avatarLarger || user?.avatarMedium || user?.avatarThumb ||
-              chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
-
-            const pfpUrl = raw ? proxy(raw) : '';
-
-            const payload = { platform: 'tiktok', userId, userName, pfpUrl };
+            const payload = mapTikTokUser(chat);
             QueueFloater.linkNextQueueTo(payload);
             console.debug('[QueueFloater] linked next queue to', payload);
           } catch (e) {
@@ -315,11 +395,24 @@
           }
         };
 
-        // Best-effort wiring for events your bridge might emit
-        const evtNames = ['tiktok:comment', 'tiktok:request', 'tiktok:message', 'chat:command', 'sr:command', 'songrequest:chat'];
+        // Best-effort: wire any events your bridge might emit to auto-link
+        const evtNames = [
+          'tiktok:comment',
+          'tiktok:request',
+          'tiktok:message',
+          'chat:command',
+          'sr:command',
+          'songrequest:chat'
+        ];
         evtNames.forEach((evt) => {
           window.addEventListener(evt, (e) => window.linkNextTikTokUser(e.detail));
         });
+
+        // Final safety: if the legacy overlay leaks in from elsewhere, remove its element periodically
+        setInterval(() => {
+          const el = document.querySelector('.standalone-requests, [data-overlay="standalone-requests"], [data-overlay="requests-floaters"]');
+          if (el && el.parentElement) el.parentElement.removeChild(el);
+        }, 2000);
       })();
     </script>
   </body>
