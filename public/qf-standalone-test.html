@@ -42,19 +42,21 @@
         };
 
         function proxy(u) {
-          if (window.QUEUE_FLOATER_IMAGE_PROXY) {
-            return window.QUEUE_FLOATER_IMAGE_PROXY + encodeURIComponent(u || '');
-          }
+          const base = (window.QUEUE_FLOATER_IMAGE_PROXY || '').trim();
+          if (!base) return u;
+          if (!u) return u;
+          // Skip if already proxied
+          if (u.startsWith(base)) return u;
           try {
+            // Validate URL before wrapping (also allows http(s) only)
             const url = new URL(u);
-            const hostAndPath = url.host + url.pathname + (url.search || '');
-            return 'https://images.weserv.nl/?url=' + encodeURIComponent(hostAndPath);
+            if (url.protocol !== 'https:' && url.protocol !== 'http:') return u;
           } catch {
             return u;
           }
+          return base + encodeURIComponent(u);
         }
 
-        // Convert open.spotify URLs to spotify:track: URIs for the queue endpoint/linker
         function toSpotifyUri(input) {
           if (!input) return input;
           if (input.startsWith('spotify:')) return input;
@@ -72,7 +74,7 @@
 
         QueueFloater.setConfig({
           debug: true,
-          proxyImages: true,
+          proxyImages: true,   // Let QueueFloater proxy once via the proxy() function
           proxy,
           chatLinkTTLms: 60000,
           recentChatWindowMs: 60000,
@@ -80,15 +82,15 @@
         });
 
         function linkToAvatar() {
-          const avatar = document.getElementById('avatar').value.trim();
-          const proxied = proxy(avatar);
+          const rawAvatar = document.getElementById('avatar').value.trim();
+          // IMPORTANT: pass RAW TikTok URL; QueueFloater will proxy it
           QueueFloater.linkNextQueueTo({
             platform: 'tiktok',
             userId: '123',
             userName: 'Standalone Test',
-            pfpUrl: proxied
+            pfpUrl: rawAvatar
           });
-          log('linked to', { pfpUrl: proxied });
+          log('linked to', { pfpUrl: rawAvatar });
         }
 
         async function fireQueueViaFetch() {
