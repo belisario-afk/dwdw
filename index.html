@@ -25,7 +25,6 @@
     <!-- App stylesheet -->
     <link rel="stylesheet" href="/style.css" />
 
-    <!-- Styles (kept verbose to match your larger index) -->
     <style>
       :root {
         --bg: #0b0b0f;
@@ -167,7 +166,7 @@
         }
       }
 
-      /* Safety: hide any legacy "Standalone Requests" overlay if it still loads */
+      /* Safety: hide any legacy "Standalone Requests" / "Requests Floaters" overlay if it still loads */
       .standalone-requests,
       [data-overlay="standalone-requests"],
       [data-overlay="requests-floaters"] {
@@ -294,8 +293,8 @@
           "Flow Field",
           "Neon Bars",
           "Stained Glass Voronoi",
-          "Emo Slashes",
-          "Requests Floaters",
+          "Emo Slashes"
+          /* intentionally omit "Requests Floaters" to avoid user selecting it */
         ];
         const sel = document.getElementById("scene-select");
 
@@ -338,82 +337,9 @@
       })();
     </script>
 
-    <!-- Queue Floater: load local file and wire chat→queue linkage -->
+    <!-- Queue Floater (local) + TikTok chat linking -->
     <script src="/queue-floater.js"></script>
-    <script>
-      (function () {
-        if (!window.QueueFloater) {
-          console.error('[QueueFloater] not loaded from /queue-floater.js. Ensure public/queue-floater.js exists.');
-          return;
-        }
-
-        // Proxy helper for avatars/album art
-        function proxy(u) {
-          return 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u || '');
-        }
-
-        // Configure QueueFloater
-        QueueFloater.setConfig({
-          proxyImages: true,
-          proxy,
-          color: '#22cc88',
-          chatLinkTTLms: 60000,        // long TTL for testing; reduce to ~15000–20000 for production
-          recentChatWindowMs: 60000,   // same window for “recent chat” association
-          // debug: true,               // enable for verbose logs
-          defaultPfpUrl: ''            // optional fallback avatar via proxy('https://...png')
-        });
-
-        // Map likely TikTok fields → { userId, userName, pfpUrl }
-        function mapTikTokUser(chat) {
-          const user = chat && (chat.user || chat);
-
-          const userId =
-            user?.userId || chat?.userId || chat?.uniqueId || user?.uniqueId || '';
-
-          const userName =
-            user?.nickname || user?.displayName || user?.username || user?.uniqueId ||
-            chat?.nickname || chat?.displayName || chat?.username || chat?.uniqueId ||
-            'TikTok User';
-
-          // Try many common TikTok avatar fields; proxy to ensure it loads
-          const raw =
-            user?.profilePictureUrl || user?.avatarLarger || user?.avatarMedium || user?.avatarThumb ||
-            chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
-
-          const pfpUrl = raw ? proxy(raw) : '';
-          return { platform: 'tiktok', userId, userName, pfpUrl };
-        }
-
-        // Expose a helper you can call RIGHT BEFORE your POST to /v1/me/player/queue
-        window.linkNextTikTokUser = function (chat) {
-          try {
-            const payload = mapTikTokUser(chat);
-            QueueFloater.linkNextQueueTo(payload);
-            console.debug('[QueueFloater] linked next queue to', payload);
-          } catch (e) {
-            console.warn('[QueueFloater] linkNextQueueTo failed', e);
-          }
-        };
-
-        // Best-effort: wire any events your bridge might emit to auto-link
-        const evtNames = [
-          'tiktok:comment',
-          'tiktok:request',
-          'tiktok:message',
-          'chat:command',
-          'sr:command',
-          'songrequest:chat'
-        ];
-        evtNames.forEach((evt) => {
-          window.addEventListener(evt, (e) => window.linkNextTikTokUser(e.detail));
-        });
-
-        // Final safety: if the legacy overlay leaks in from elsewhere, remove its element periodically
-        setInterval(() => {
-          const el = document.querySelector('.standalone-requests, [data-overlay="standalone-requests"], [data-overlay="requests-floaters"]');
-          if (el && el.parentElement) el.parentElement.removeChild(el);
-        }, 2000);
-      })();
-    </script>
+    <script src="/disable-legacy-requests.js"></script>
+    <script src="/queue-linker.js"></script>
   </body>
 </html>
