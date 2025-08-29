@@ -10,11 +10,16 @@
       input, button { padding: 8px; border-radius: 8px; border: 1px solid #333; background: #17171d; color: #eee; }
       label { opacity: 0.8; }
     </style>
+    <script>
+      // Set your robust proxy URL here after deploying the worker:
+      // window.QUEUE_FLOATER_IMAGE_PROXY = 'https://YOUR-SUBDOMAIN.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
+      window.QUEUE_FLOATER_IMAGE_PROXY = window.QUEUE_FLOATER_IMAGE_PROXY || '';
+    </script>
   </head>
   <body>
     <div class="hud">
       <label>Avatar URL (TikTok or any image)</label>
-      <input id="avatar" value="https://i.pravatar.cc/100?img=12" />
+      <input id="avatar" value="https://p19-pu-sign-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7fd17cea1f34121764a7b307ee952dc4~tplv-tiktokx-cropcenter:1080:1080.jpeg" />
 
       <label>Track URI</label>
       <input id="track" value="spotify:track:4NRXx6U3G3J3RkGfHh1Euh" />
@@ -34,9 +39,6 @@
           el.textContent += a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ') + '\n';
           console.log(...a);
         };
-
-        // Optional: set your Worker URL here once deployed:
-        // window.QUEUE_FLOATER_IMAGE_PROXY = 'https://YOUR-SUBDOMAIN.YOUR-ACCOUNT.workers.dev/image-proxy?url=';
 
         function proxy(u) {
           if (window.QUEUE_FLOATER_IMAGE_PROXY) {

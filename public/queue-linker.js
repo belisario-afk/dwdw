@@ -1,5 +1,8 @@
-/* Queue Floater linker: associates TikTok requester -> next Spotify queue call */
-/* Requires public/queue-floater.js to be present and loaded before this file. */
+/* Queue Floater linker: reliably associates TikTok requester -> next Spotify queue call.
+   - Uses a robust image proxy (set window.QUEUE_FLOATER_IMAGE_PROXY in index.html).
+   - Auto-links on both fetch() and XHR queue calls (no timing issues).
+   - Remembers the most recent TikTok chat via multiple event channels.
+*/
 
 (function () {
   if (!window.QueueFloater) {
@@ -7,19 +10,12 @@
     return;
   }
 
-  // Optional: set this to your own Cloudflare Worker proxy endpoint for images
-  // e.g., 'https://your-subdomain.your-account.workers.dev/image-proxy?url='
-  // You can deploy the worker provided in workers/image-proxy.js
-  window.QUEUE_FLOATER_IMAGE_PROXY =
-    window.QUEUE_FLOATER_IMAGE_PROXY ||
-    '';
-
+  // Proxy helper: prefer your Cloudflare Worker, fallback to images.weserv.nl
   function proxyViaWorker(u) {
     if (!u) return '';
     if (window.QUEUE_FLOATER_IMAGE_PROXY) {
-      return window.QUEUE_FLOATER_IMAGE_PROXY + encodeURIComponent(u);
+      return String(window.QUEUE_FLOATER_IMAGE_PROXY) + encodeURIComponent(u);
     }
-    // Fallback proxy via images.weserv.nl (requires host+path only, no protocol)
     try {
       const url = new URL(u);
       const hostAndPath = url.host + url.pathname + (url.search || '');
@@ -29,18 +25,27 @@
     }
   }
 
-  // Configure QueueFloater with robust defaults
+  // Configure QueueFloater
   QueueFloater.setConfig({
     proxyImages: true,
     proxy: proxyViaWorker,
     color: '#22cc88',
     chatLinkTTLms: 60000,        // allow longer link window during testing
-    recentChatWindowMs: 60000,   // same window for last-chat association
-    debug: true,                 // enable to see logs in Console
-    defaultPfpUrl: ''            // optional: proxyViaWorker('https://i.pravatar.cc/100?img=5')
+    recentChatWindowMs: 60000,   // associate with chats in the last minute
+    debug: true,
+    defaultPfpUrl: ''            // e.g., proxyViaWorker('https://i.pravatar.cc/64?img=5')
   });
 
-  // Map likely TikTok fields → { userId, userName, pfpUrl }
+  // Track the most recent TikTok chat object we saw
+  let __lastTikTokChat = null;
+  let __lastLinkTs = 0;
+
+  function rememberChat(chat) {
+    if (!chat) return;
+    __lastTikTokChat = chat;
+  }
+
+  // Robust mapping from TikTok chat to required fields
   function mapTikTokUser(chat) {
     const user = chat && (chat.user || chat);
 
@@ -58,17 +63,14 @@
       chat?.profilePictureUrl || chat?.avatarUrl || chat?.avatarLarger || chat?.avatarMedium || chat?.avatarThumb || '';
 
     const pfpUrl = raw ? proxyViaWorker(raw) : '';
-    return { platform: 'tiktok', userId, userName, pfpUrl, pfpSource: raw ? new URL(raw, location.href).host : '' };
+    return { platform: 'tiktok', userId, userName, pfpUrl };
   }
 
-  // Expose a helper you can call RIGHT BEFORE your POST to /v1/me/player/queue
-  let __lastLinkTs = 0;
+  // Public helper: call this with your chat object BEFORE queueing
   window.linkNextTikTokUser = function (chat) {
     try {
+      rememberChat(chat);
       const payload = mapTikTokUser(chat);
-      if (!payload.pfpUrl) {
-        console.warn('[QueueFloater] No avatar URL found on chat object; will fall back to album art.');
-      }
       QueueFloater.linkNextQueueTo(payload);
       __lastLinkTs = Date.now();
       console.debug('[QueueFloater] linked next queue to', payload);
@@ -77,42 +79,49 @@
     }
   };
 
-  // Best-effort: wire any events your app might emit to auto-link
-  const evtNames = [
-    'tiktok:comment',
-    'tiktok:request',
-    'tiktok:message',
-    'chat:command',
-    'sr:command',
-    'songrequest:chat'
+  // Listen to a wide set of possible events and remember chatters
+  const CHAT_EVT_NAMES = [
+    'tiktok:comment', 'tiktok:request', 'tiktok:message',
+    'chat:command', 'sr:command', 'songrequest:chat', 'chat:message'
   ];
-  evtNames.forEach((evt) => {
-    window.addEventListener(evt, (e) => window.linkNextTikTokUser(e.detail));
+  CHAT_EVT_NAMES.forEach((evt) => {
+    window.addEventListener(evt, (e) => {
+      try { rememberChat(e.detail || e.data || null); } catch {}
+    });
   });
 
-  // Track the most recent TikTok chat so we can auto-link on queue detection
-  let __lastTikTokChat = null;
-  function remember(chat) { __lastTikTokChat = chat || __lastTikTokChat; }
-  window.addEventListener('tiktok:comment', (e) => remember(e.detail));
-  window.addEventListener('tiktok:request', (e) => remember(e.detail));
-  window.addEventListener('tiktok:message', (e) => remember(e.detail));
+  // Also watch postMessage traffic for objects that look like TikTok chats
+  window.addEventListener('message', (e) => {
+    try {
+      const d = e.data;
+      if (!d || typeof d !== 'object') return;
+      const looksTikTok =
+        d.platform === 'tiktok' ||
+        d?.user?.uniqueId || d?.uniqueId ||
+        d?.user?.avatarThumb || d?.avatarThumb;
+      if (looksTikTok) rememberChat(d);
+    } catch {}
+  });
 
-  // Better way: auto-link right before ANY Spotify queue call by monkey-patching fetch.
-  // This removes timing errors if your command handler forgets to call linkNextTikTokUser.
-  (function patchFetchForQueueLinking() {
+  // Ensure we link a TikTok user right before ANY queue call, even if the bridge forgot.
+  function ensureLinkBeforeQueue() {
+    const now = Date.now();
+    const age = now - __lastLinkTs;
+    if (age > 3000 && __lastTikTokChat) {
+      window.linkNextTikTokUser(__lastTikTokChat);
+      console.debug('[QueueFloater] auto-linked most recent TikTok user just before queue call');
+    }
+  }
+
+  // Patch fetch
+  (function patchFetch() {
     if (!window.fetch || window.__queueFloaterFetchPatched) return;
     const origFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
       try {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         if (url && url.includes('/v1/me/player/queue')) {
-          const now = Date.now();
-          const age = now - __lastLinkTs;
-          if (age > 3000 && __lastTikTokChat) {
-            // If we didn't link in the last 3s, link the most recent TikTok chat now
-            window.linkNextTikTokUser(__lastTikTokChat);
-            console.debug('[QueueFloater] auto-linked most recent TikTok user just before queue call');
-          }
+          ensureLinkBeforeQueue();
         }
       } catch {}
       return origFetch(input, init);
@@ -120,14 +129,35 @@
     window.__queueFloaterFetchPatched = true;
   })();
 
-  // Optional: quick console test helper
+  // Patch XHR
+  (function patchXHR() {
+    if (window.__queueFloaterXHRPatched) return;
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+    let lastURL = '';
+    XMLHttpRequest.prototype.open = function (method, url) {
+      try { lastURL = String(url || ''); } catch { lastURL = ''; }
+      return origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      try {
+        if (lastURL && lastURL.includes('/v1/me/player/queue')) {
+          ensureLinkBeforeQueue();
+        }
+      } catch {}
+      return origSend.apply(this, arguments);
+    };
+    window.__queueFloaterXHRPatched = true;
+  })();
+
+  // Optional: quick console test
   window.__testQueueFloater = async function () {
-    const avatar = 'https://i.pravatar.cc/100?img=3';
+    const avatar = 'https://i.pravatar.cc/100?img=12';
     const proxied = proxyViaWorker(avatar);
     QueueFloater.linkNextQueueTo({
       platform: 'tiktok',
       userId: '123',
-      userName: 'Explicit Map',
+      userName: 'Standalone Test',
       pfpUrl: proxied
     });
     try {

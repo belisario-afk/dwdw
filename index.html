@@ -96,7 +96,7 @@
       }
 
       .left  { flex: 1 1 320px; justify-content: flex-start; }
-        .center{ flex: 1 1 360px; justify-content: center; }
+      .center{ flex: 1 1 360px; justify-content: center; }
       .right { flex: 1 1 320px; justify-content: flex-end; }
 
       button, select, input[type="range"], input[type="text"] {
@@ -116,11 +116,7 @@
       #seek { width: min(38vw, 520px); }
       #volume { width: 110px; }
 
-      .kv {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
+      .kv { display: inline-flex; align-items: center; gap: 6px; }
 
       @media (max-width: 1024px) {
         #seek { width: min(44vw, 560px); }
@@ -137,11 +133,9 @@
           padding: 10px;
           border-radius: calc(var(--hud-radius) + 2px);
         }
-
         .center { order: 1; justify-content: center; flex: 1 1 100%; }
         .left   { order: 2; justify-content: center; flex: 1 1 100%; }
         .right  { order: 3; justify-content: center; flex: 1 1 100%; }
-
         .left, .center, .right { flex-wrap: wrap; gap: 8px; }
         #seek { width: 100%; max-width: 100%; }
         #volume { width: min(55vw, 240px); }
@@ -177,10 +171,16 @@
     <!-- App entry (Vite) and scenes -->
     <script type="module" src="/src/main.ts"></script>
     <script type="module" src="/src/scenes/custom-scenes.ts"></script>
-    <!-- IMPORTANT: the legacy Requests overlay is intentionally NOT loaded to avoid duplicate cards -->
+    <!-- IMPORTANT: legacy Requests overlay is intentionally NOT loaded to avoid duplicate cards -->
     <!-- <script type="module" src="/src/scenes/requests-scene.ts"></script> -->
     <!-- Chat/queue bridge (keep enabled so commands still work) -->
     <script type="module" src="/src/integrations/song-requests-bridge.ts"></script>
+
+    <!-- Configure the image proxy endpoint used by QueueFloater (SET THIS to your Worker URL) -->
+    <script>
+      // Example: 'https://your-subdomain.your-account.workers.dev/image-proxy?url='
+      window.QUEUE_FLOATER_IMAGE_PROXY = window.QUEUE_FLOATER_IMAGE_PROXY || '';
+    </script>
   </head>
 
   <body>
@@ -269,14 +269,11 @@
         try {
           const saved = localStorage.getItem(KEY);
           if (saved && Object.prototype.hasOwnProperty.call(FONTS, saved)) {
-            sel.value = saved;
-            apply(saved);
+            sel.value = saved; apply(saved);
           } else {
             apply(sel.value);
           }
-        } catch {
-          apply(sel.value);
-        }
+        } catch { apply(sel.value); }
         sel.addEventListener("change", (e) => apply(e.target.value));
       })();
     </script>
