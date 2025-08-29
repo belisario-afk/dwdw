@@ -1,39 +1,97 @@
-/* QueueFloater image proxy configuration.
-   Set ONE of the URLs below to point to your proxy endpoint.
-   - EXISTING_PROXY: your current proxy (use if it already handles TikTok with a Referer)
-   - ROBUST_PROXY: the Cloudflare Worker robust proxy
-   Only ONE should be non-empty. Example values included in comments.
+/* QueueFloater boot: make avatar proxying Just Work whether the input
+   pfpUrl is RAW (TikTok CDN) or already PROXIED (any ?url= style proxy).
+   - Prefers your robust proxy (window.QUEUE_FLOATER_IMAGE_PROXY)
+   - Avoids double-proxying
+   - Unwraps known proxy patterns and re-wraps with robust proxy
+   Load AFTER /queue-floater-config.js and /queue-floater.js, BEFORE /queue-linker.js.
 */
-
 (function () {
-  // Example: your existing proxy that forwards ?url= and returns the image with CORS enabled
-  // const EXISTING_PROXY = 'https://your-existing-proxy.example.com/image-proxy?url=';
-  const EXISTING_PROXY = '';
+  function getBase() {
+    return (window.QUEUE_FLOATER_IMAGE_PROXY || '').trim();
+  }
 
-  // Your deployed Cloudflare Worker robust proxy
-  const ROBUST_PROXY = 'https://image-proxy-robust.tikusers862.workers.dev/image-proxy?url=';
+  function isHttpUrl(u) {
+    try {
+      const x = new URL(u);
+      return x.protocol === 'https:' || x.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }
 
-  // Pick ONE: if both are set, ROBUST_PROXY takes precedence.
-  const chosen = (ROBUST_PROXY || EXISTING_PROXY || '').trim();
+  function decodeURIComponentSafe(s) {
+    try { return decodeURIComponent(s); } catch { return s; }
+  }
 
-  if (typeof window !== 'undefined') {
-    window.QUEUE_FLOATER_IMAGE_PROXY = chosen;
+  // Try to extract the original image URL from common proxy patterns.
+  // Supports:
+  // - Any proxy that uses ?url=<encoded_or_plain_http(s)_url>
+  // - images.weserv.nl/?url=host/path (no scheme): we add https://
+  function extractRawFromProxy(u) {
+    try {
+      const x = new URL(u);
 
-    // Optional: quick health check helper (run from DevTools)
-    // window.__testProxy('https://i.pravatar.cc/64')
-    window.__testProxy = async function (rawUrl) {
-      if (!window.QUEUE_FLOATER_IMAGE_PROXY) {
-        console.warn('[QueueFloater] No proxy configured. Edit public/queue-floater-config.js');
-        return;
+      // Generic ?url= case
+      let raw = x.searchParams.get('url');
+      if (raw) {
+        raw = decodeURIComponentSafe(raw);
+        // weserv may pass host/path without scheme
+        if (!/^https?:\/\//i.test(raw)) {
+          raw = 'https://' + raw.replace(/^\/+/, '');
+        }
+        return raw;
       }
-      const testUrl = rawUrl || 'https://i.pravatar.cc/64';
-      const proxied = window.QUEUE_FLOATER_IMAGE_PROXY + encodeURIComponent(testUrl);
-      try {
-        const r = await fetch(proxied, { method: 'GET' });
-        console.log('[QueueFloater] Proxy test', { status: r.status, type: r.headers.get('content-type') });
-      } catch (e) {
-        console.error('[QueueFloater] Proxy test failed', e);
-      }
-    };
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  // Normalize whatever pfpUrl we get into a single, robustly proxied URL.
+  // Strategy:
+  // - If already using our robust proxy base, return as-is.
+  // - Else if looks like a proxy (has ?url=), unwrap to RAW and re-wrap with robust base.
+  // - Else if RAW http(s) URL, wrap with robust base.
+  // - Else return unmodified.
+  function normalizeAvatarUrl(u) {
+    if (!u) return u;
+    const base = getBase();
+
+    // Already proxied by our robust worker
+    if (base && u.startsWith(base)) return u;
+
+    // Proxied by some other service? (e.g., weserv, legacy proxy, etc.)
+    const unwrapped = extractRawFromProxy(u);
+    if (unwrapped && isHttpUrl(unwrapped)) {
+      return base ? base + encodeURIComponent(unwrapped) : unwrapped;
+    }
+
+    // RAW http(s) image URL: wrap once
+    if (isHttpUrl(u)) {
+      return base ? base + encodeURIComponent(u) : u;
+    }
+
+    // Unknown format; return as-is
+    return u;
+  }
+
+  // Apply configuration if QueueFloater is present
+  function applyConfig() {
+    if (!window.QueueFloater || typeof window.QueueFloater.setConfig !== 'function') return;
+    window.QueueFloater.setConfig({
+      // Keep image proxying ON; our normalize function ensures single-layer proxying.
+      proxyImages: true,
+      proxy: normalizeAvatarUrl
+    });
+    try {
+      console.log('[QueueFloater Boot] proxy configured with robust normalization');
+    } catch {}
+  }
+
+  // If QueueFloater is already loaded, apply immediately; otherwise wait.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyConfig);
+  } else {
+    applyConfig();
   }
 })();

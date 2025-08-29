@@ -1,64 +1,112 @@
-/* Aggressively disable or hide the legacy "Standalone Requests" / "Requests Floaters" overlay. */
-
+/* Hard-disable legacy "Standalone Requests" and "Requests Floaters" overlays.
+   - Stops their event listeners from firing
+   - Removes/hides their DOM nodes
+   - Stubs globals when present
+   Load this as EARLY as possible on pages where QueueFloater runs.
+*/
 (function () {
-  // 1) Intercept console logs to detect when that overlay initializes
-  (function interceptConsole() {
-    if (window.__legacyRequestsConsolePatched) return;
-    const origLog = console.log.bind(console);
-    const origInfo = console.info ? console.info.bind(console) : origLog;
-    function checkArgs(args) {
-      try {
-        const s = args.map(a => (typeof a === 'string' ? a : '')).join(' ');
-        if (/\[Standalone Requests\]/i.test(s) || /\[Requests Floaters\]/i.test(s)) {
-          setTimeout(removeLegacyNodes, 0);
-        }
-      } catch {}
-    }
-    console.log = function () { checkArgs([].slice.call(arguments)); return origLog.apply(console, arguments); };
-    console.info = function () { checkArgs([].slice.call(arguments)); return origInfo.apply(console, arguments); };
-    window.__legacyRequestsConsolePatched = true;
-  })();
+  const TAG = '[Disable Legacy Requests]';
 
-  // 2) Periodically remove known DOM elements
-  function removeLegacyNodes() {
-    const sel = [
-      '.standalone-requests',
-      '[data-overlay="standalone-requests"]',
-      '[data-overlay="requests-floaters"]',
-      '#standalone-requests',
-      '#requests-floaters'
-    ].join(',');
-    document.querySelectorAll(sel).forEach((el) => {
-      try { el.remove(); } catch {}
-    });
-  }
-  const interval = setInterval(removeLegacyNodes, 1000);
-  window.addEventListener('beforeunload', () => clearInterval(interval));
+  // 1) Stop legacy request-related CustomEvents from reaching old overlays
+  const BLOCKED_EVENTS = [
+    'songrequest',
+    'songRequest',
+    'song-request',
+    'sr:add',
+    'requests:add',
+    'requests:queued',
+    'request'
+  ];
+  BLOCKED_EVENTS.forEach((evt) => {
+    document.addEventListener(evt, (e) => {
+      try { e.stopImmediatePropagation(); e.stopPropagation(); } catch {}
+    }, true); // capture phase
+  });
 
-  // 3) Try to unregister scenes if supported
-  try {
-    const d = window.__director;
-    if (d && typeof d.unregisterScene === 'function') {
-      try { d.unregisterScene('Requests Floaters'); } catch {}
-      try { d.unregisterScene('Standalone Requests'); } catch {}
-    }
-  } catch {}
-
-  // 4) Inject CSS to hard-hide anything that slips through
-  try {
-    const style = document.createElement('style');
-    style.textContent = `
-      .standalone-requests,
-      [data-overlay="standalone-requests"],
-      [data-overlay="requests-floaters"],
-      #standalone-requests,
-      #requests-floaters {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
+  // 2) Neutralize known globals if they appear
+  const stub = (name) => {
+    try {
+      if (name in window) {
+        Object.defineProperty(window, name, {
+          configurable: true,
+          enumerable: false,
+          get() { return undefined; },
+          set() { /* ignore */ }
+        });
       }
-    `;
-    document.head.appendChild(style);
+    } catch {}
+  };
+  ['StandaloneRequests', 'RequestsFloaters', 'RequestsOverlay', 'SongRequests'].forEach(stub);
+
+  // 3) Remove/hide legacy DOM overlays as they appear
+  const HIDE_SELECTORS = [
+    // Common guesses/names used by legacy widgets. Safe no-ops if not present.
+    '#standalone-requests', '.standalone-requests', '[data-standalone-requests]',
+    '#requests-floaters', '.requests-floaters', '[data-requests-floaters]',
+    '.requests-overlay', '#requests-overlay', '[data-requests-overlay]',
+    '.songrequests', '#songrequests'
+  ];
+
+  // Inject a tiny stylesheet to force-hide legacy nodes
+  try {
+    const css = document.createElement('style');
+    css.setAttribute('data-legacy-requests-hide', 'true');
+    css.textContent = HIDE_SELECTORS.join(',') + '{ display: none !important; visibility: hidden !important; }';
+    document.documentElement.appendChild(css);
   } catch {}
+
+  // Mutation observer to remove anything matching heuristics
+  const isLegacyNode = (el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    const txt = (el.className + ' ' + el.id).toLowerCase();
+    if (!txt) return false;
+    // Heuristics: contains "request" or "floater" but not "queuefloater"
+    if ((/request|floater/.test(txt)) && !/queuefloater/.test(txt)) return true;
+    // Attributes
+    for (const a of el.attributes) {
+      const v = (a.name + ' ' + a.value).toLowerCase();
+      if ((/request|floater/.test(v)) && !/queuefloater/.test(v)) return true;
+    }
+    return false;
+  };
+
+  const nuke = (root) => {
+    try {
+      // Remove exact matches by selectors
+      HIDE_SELECTORS.forEach((sel) => {
+        root.querySelectorAll(sel).forEach((n) => n.remove());
+      });
+      // Heuristic removal
+      const all = root.querySelectorAll('*');
+      all.forEach((n) => {
+        if (isLegacyNode(n)) {
+          n.remove();
+        }
+      });
+    } catch {}
+  };
+
+  const mo = new MutationObserver((muts) => {
+    muts.forEach((m) => {
+      m.addedNodes && m.addedNodes.forEach((n) => {
+        if (n.nodeType === 1) {
+          const el = n;
+          if (isLegacyNode(el)) {
+            try { el.remove(); } catch {}
+          } else {
+            nuke(el);
+          }
+        }
+      });
+    });
+  });
+  try {
+    mo.observe(document.documentElement || document.body, { childList: true, subtree: true });
+  } catch {}
+
+  // Initial sweep
+  nuke(document);
+
+  // Minimal console confirmation
+  try { console.log(TAG, 'legacy overlays disabled'); } catch {}
 })();
