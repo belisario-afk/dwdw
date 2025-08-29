@@ -33,7 +33,7 @@ importers:
         specifier: ^4.0.1
         version: 4.0.3
       three:
-        specifier: ^0.160.0
+        specifier: ^0.160.1
         version: 0.160.1
       tinycolor2:
         specifier: ^1.6.0
