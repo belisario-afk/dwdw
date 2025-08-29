@@ -1,9 +1,11 @@
 /* qf-mark.js — mark the next requester with a real avatar.
-   Usage in your chat handler, RIGHT BEFORE you call Spotify queue:
-     qfMarkFromChat(chatLikeObject)
+   Call this in your chat handler RIGHT BEFORE you queue the track:
+     qfMarkFromChat(chatEventObject)
+   It extracts name/id/avatar from common fields; if avatar missing but uniqueId present,
+   it will try to fetch one via your worker (/avatar?user=<uniqueId>) using QUEUE_FLOATER_IMAGE_PROXY origin.
 */
 (function(){
-  const TAG = '[QF Mark]';
+  const TAG='[QF Mark]';
 
   function getProxyBase(){ return (window.QUEUE_FLOATER_IMAGE_PROXY || '').trim(); }
 
@@ -21,15 +23,14 @@
     } catch { return ''; }
   }
 
-  function pick(obj, keys){
-    for (const k of keys){
-      const v = k.split('.').reduce((a,c)=> (a && a[c] != null) ? a[c] : undefined, obj);
+  function pick(obj, paths){
+    for (const p of paths){
+      const v = p.split('.').reduce((a,c)=> (a && a[c] != null) ? a[c] : undefined, obj);
       if (v) return v;
     }
     return '';
   }
 
-  // Best-effort extraction from various chat payload shapes
   function extract(chat){
     const userName = pick(chat, [
       'userName','username','displayName','nickname',

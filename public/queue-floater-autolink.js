@@ -1,72 +1,58 @@
-/* QueueFloater Autolink
-   You call: window.QueueFloaterMarkNextRequester({ userId, userName, avatarUrl, uniqueId, platform })
-   This script intercepts fetch/XHR to Spotify queue and calls linkNextQueueTo just-in-time.
+/* Auto-link the next requester to the next Spotify queue call (fetch/XHR).
+   Usage in your chat handler RIGHT BEFORE queueing the song:
+     window.QueueFloaterMarkNextRequester({ userId, userName, avatarUrl, uniqueId, platform: 'tiktok' });
+   Then execute your fetch/XHR to POST https://api.spotify.com/v1/me/player/queue...
+   Load after queue-floater.js (and after queue-floater-boot.js if you use it), before queue-linker.js.
 */
-(function () {
-  const TAG = '[QF Autolink]';
-  const TTL_MS = 120000;
+(function(){
+  if (window.__QF_AUTOLINK_INSTALLED__) return;
+  window.__QF_AUTOLINK_INSTALLED__ = true;
 
-  function getProxyBase(){ return (window.QUEUE_FLOATER_IMAGE_PROXY || '').trim(); }
-  function isHttpUrl(u){ try{ const x=new URL(u); return x.protocol==='https:'||x.protocol==='http:'; }catch{ return false; } }
-  function dUS(s){ try{ return decodeURIComponent(s); }catch{ return s; } }
-  function unwrapProxy(u){ try{ const x=new URL(u); const q=x.searchParams.get('url'); if(q){ let r=dUS(q); if(!/^https?:\/\//i.test(r)) r='https://'+r.replace(/^\/+/, ''); return r; } }catch{} return ''; }
-  function normalizeAvatarUrl(u){
-    if(!u) return u;
-    const base=getProxyBase();
-    if(base && u.startsWith(base)) return u;
-    const unwrapped=unwrapProxy(u);
-    if(unwrapped && isHttpUrl(unwrapped)) return base ? base+encodeURIComponent(unwrapped) : unwrapped;
-    if(isHttpUrl(u)) return base ? base+encodeURIComponent(u) : u;
-    return u;
-  }
-
-  function pickName(r){ return r.userName||r.username||r.displayName||r.nickname||r.user?.nickname||r.user?.uniqueId||r.name||'Viewer'; }
-  function pickId(r){ return String(r.userId||r.id||r.uniqueId||r.user?.id||r.user?.userId||r.user?.uniqueId||''); }
-  function pickAvatar(r){ return r.pfpUrl||r.avatarUrl||r.profileImageUrl||r.profilePicUrl||r.photoURL||r.imageUrl||r.picture||r.user?.avatarLarger||r.user?.avatarMedium||r.user?.avatarThumb||''; }
-  function pickPlatform(r){ return r.platform||'tiktok'; }
-
+  const TAG='[QF Autolink]';
   let pending=null;
-  window.QueueFloaterMarkNextRequester=function(userLike){
-    pending={ when:Date.now(), data:userLike||{} };
-    try{ console.log(TAG,'marked requester',{ userName: pickName(pending.data) }); }catch{}
-  };
-  window.__QF_AL_READY = true;
+  const TTL=120000;
 
-  function consumeIfFresh(){
+  window.QueueFloaterMarkNextRequester=(u)=>{
+    pending={ when:Date.now(), data:u||{} };
+    try{ console.log(TAG, 'marked', pending.data.userName||pending.data.username); }catch{}
+  };
+
+  function consume(){
     if(!pending) return null;
-    if(Date.now()-pending.when>TTL_MS){ pending=null; return null; }
-    const d=pending.data||{}; pending=null; return d;
+    if(Date.now()-pending.when>TTL){ pending=null; return null; }
+    const d=pending.data; pending=null; return d;
   }
 
   async function linkBeforeQueue(){
-    const d=consumeIfFresh(); if(!d) return;
-    const pfp=normalizeAvatarUrl(pickAvatar(d));
-    if(!window.QueueFloater || typeof window.QueueFloater.linkNextQueueTo!=='function') return;
-    window.QueueFloater.linkNextQueueTo({
-      platform: pickPlatform(d),
-      userId: pickId(d),
-      userName: pickName(d),
-      pfpUrl: pfp
-    });
-    try{ console.log(TAG,'linked',{ userName: pickName(d), hasPfp: !!pfp }); }catch{}
+    const d=consume(); if(!d) return;
+    const name=d.userName||d.username||d.displayName||d.nickname||d.user?.nickname||d.user?.uniqueId||'Viewer';
+    const id=''+(d.userId||d.id||d.uniqueId||d.user?.userId||d.user?.id||'');
+    // Avatar can be raw or already proxied. queue-floater-boot will normalize if loaded.
+    const pfp=d.pfpUrl||d.avatarUrl||d.profileImageUrl||d.profilePicUrl||d.photoURL
+             ||d.imageUrl||d.picture||d.user?.avatarLarger||d.user?.avatarMedium||d.user?.avatarThumb||'';
+    if(window.QueueFloater?.linkNextQueueTo){
+      window.QueueFloater.linkNextQueueTo({ platform:d.platform||'tiktok', userId:id, userName:name, pfpUrl:pfp });
+      try{ console.log(TAG,'linked',{ userName:name, hasPfp: !!pfp }); }catch{}
+    }
   }
 
   function isSpotifyQueueUrl(u){
-    if(!u) return false;
-    try{ const x=new URL(u, location.href); return x.hostname==='api.spotify.com' && x.pathname==='/v1/me/player/queue'; }catch{ return false; }
+    try{
+      const x=new URL(typeof u==='string'?u:(u?.url||''), location.href);
+      return x.hostname==='api.spotify.com' && x.pathname==='/v1/me/player/queue';
+    }catch{ return false; }
   }
 
-  const origFetch=window.fetch;
-  if(typeof origFetch==='function'){
+  // Patch fetch
+  const of=window.fetch;
+  if(typeof of==='function'){
     window.fetch=async function(input, init){
-      try{
-        const url=typeof input==='string' ? input : (input && input.url) || '';
-        if(isSpotifyQueueUrl(url)){ await linkBeforeQueue(); }
-      }catch{}
-      return origFetch.apply(this, arguments);
+      try{ if(isSpotifyQueueUrl(input)) await linkBeforeQueue(); }catch{}
+      return of.apply(this, arguments);
     };
   }
 
+  // Patch XHR as well (in case your code uses it)
   (function patchXHR(){
     if(!window.XMLHttpRequest) return;
     const Orig=window.XMLHttpRequest;

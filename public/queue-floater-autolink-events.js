@@ -1,5 +1,6 @@
-/* Auto-mark next requester by listening to legacy "songrequest"/"requests:add" events.
-   Use only if you cannot call QueueFloaterMarkNextRequester from your chat code.
+/* Optional: If you can't change your chat handler, this listens for legacy events
+   and marks the requester automatically before the queue request.
+   Include AFTER /queue-floater-autolink.js.
 */
 (function(){
   const TAG='[QF Event Autolink]';
