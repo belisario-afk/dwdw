@@ -266,5 +266,16 @@
         });
       })();
     </script>
+
+    <!-- Queue Floater overlay (served from your Cloudflare Worker) -->
+    <script src="https://image-proxy.tikusers862.workers.dev/queue-floater.production.js"></script>
+    <script>
+      QueueFloater.setConfig({
+        proxyImages: true,
+        proxy: (u) => 'https://image-proxy.tikusers862.workers.dev/image-proxy?url=' + encodeURIComponent(u),
+        color: '#22cc88'
+        // debug: true
+      });
+    </script>
   </body>
 </html>
