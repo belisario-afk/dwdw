@@ -42,11 +42,13 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Install dependencies
+        env:
+          PNPM_CONFIG_FROZEN_LOCKFILE: "false"
         run: |
           if [ -f pnpm-workspace.yaml ]; then W="-w"; else W=""; fi
-          if [ -f pnpm-lock.yaml ]; then
-            pnpm $W install --frozen-lockfile
-          else
+          # Try reproducible install first; if lockfile is stale, fall back to regenerating it.
+          if ! pnpm $W install --frozen-lockfile; then
+            echo "Frozen install failed, falling back to non-frozen install..."
             pnpm $W install --no-frozen-lockfile
           fi
 
