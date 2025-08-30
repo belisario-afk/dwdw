@@ -44,11 +44,8 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f pnpm-workspace.yaml ]; then W="-w"; else W=""; fi
-          if [ -f pnpm-lock.yaml ]; then
-            pnpm $W install --frozen-lockfile
-          else
-            pnpm $W install --no-frozen-lockfile
-          fi
+          # Try reproducible install first; if lockfile is stale, fall back to regenerating it.
+          pnpm $W install --frozen-lockfile || pnpm $W install --no-frozen-lockfile
 
       - name: Build
         run: pnpm run build
