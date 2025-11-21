@@ -820,7 +820,7 @@ namespace Oxide.Plugins
                     var loadout = session.Profile.Loadouts[0];
                     container.Add(new CuiLabel
                     {
-                        Text = { Text = $"Primary: {loadout.PrimaryWeapon}", FontSize = 14, Align = TextAnchor.MiddleLeft },
+                        Text = { Text = $"Primary: {loadout.Primary}", FontSize = 14, Align = TextAnchor.MiddleLeft },
                         RectTransform = { AnchorMin = "0.55 0.5", AnchorMax = "0.85 0.55" }
                     }, UI_TAB_CONTAINER);
                 }
