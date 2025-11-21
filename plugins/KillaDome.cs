@@ -886,9 +886,9 @@ namespace Oxide.Plugins
                     
                     string[] stats = 
                     {
-                        $"Kills: {profile.Kills}",
-                        $"Deaths: {profile.Deaths}",
-                        $"K/D Ratio: {(profile.Deaths > 0 ? ((float)profile.Kills / profile.Deaths).ToString("F2") : profile.Kills.ToString())}",
+                        $"Kills: {profile.TotalKills}",
+                        $"Deaths: {profile.TotalDeaths}",
+                        $"K/D Ratio: {(profile.TotalDeaths > 0 ? ((float)profile.TotalKills / profile.TotalDeaths).ToString("F2") : profile.TotalKills.ToString())}",
                         $"Blood Tokens: {profile.Tokens}",
                         $"Matches Played: {profile.MatchesPlayed}",
                         $"VIP Status: {(profile.IsVIP ? "YES" : "NO")}"
