@@ -432,7 +432,7 @@ namespace Oxide.Plugins
             public string SelectedItem { get; set; }
             public bool IsInMatch { get; set; }
             
-            public PlayerSession(BasePlayer player, PlayerProfile profile)
+            internal PlayerSession(BasePlayer player, PlayerProfile profile)
             {
                 Player = player;
                 Profile = profile;
@@ -512,7 +512,7 @@ namespace Oxide.Plugins
             private Match _currentMatch;
             private List<ulong> _matchQueue = new List<ulong>();
             
-            public DomeManager(KillaDome plugin, PluginConfig config)
+            internal DomeManager(KillaDome plugin, PluginConfig config)
             {
                 _plugin = plugin;
                 _config = config;
@@ -614,7 +614,7 @@ namespace Oxide.Plugins
             private const string UI_MAIN = "KillaDome.Main";
             private const string UI_TAB_CONTAINER = "KillaDome.TabContainer";
             
-            public LobbyUI(KillaDome plugin, LoadoutEditor loadoutEditor, ForgeStationSystem forgeStation, StoreAPI storeAPI)
+            internal LobbyUI(KillaDome plugin, LoadoutEditor loadoutEditor, ForgeStationSystem forgeStation, StoreAPI storeAPI)
             {
                 _plugin = plugin;
                 _loadoutEditor = loadoutEditor;
@@ -762,7 +762,7 @@ namespace Oxide.Plugins
             private AttachmentSystem _attachmentSystem;
             private Dictionary<ulong, string> _selectedItems = new Dictionary<ulong, string>();
             
-            public LoadoutEditor(KillaDome plugin, AttachmentSystem attachmentSystem)
+            internal LoadoutEditor(KillaDome plugin, AttachmentSystem attachmentSystem)
             {
                 _plugin = plugin;
                 _attachmentSystem = attachmentSystem;
@@ -816,7 +816,7 @@ namespace Oxide.Plugins
             private PluginConfig _config;
             private Dictionary<string, AttachmentDefinition> _attachments;
             
-            public AttachmentSystem(KillaDome plugin, PluginConfig config)
+            internal AttachmentSystem(KillaDome plugin, PluginConfig config)
             {
                 _plugin = plugin;
                 _config = config;
@@ -865,7 +865,7 @@ namespace Oxide.Plugins
                 };
             }
             
-            public AttachmentDefinition GetAttachment(string attachmentId)
+            internal AttachmentDefinition GetAttachment(string attachmentId)
             {
                 _attachments.TryGetValue(attachmentId, out var attachment);
                 return attachment;
@@ -926,7 +926,7 @@ namespace Oxide.Plugins
             private PluginConfig _config;
             private Dictionary<string, WeaponDefinition> _weapons;
             
-            public WeaponProgression(KillaDome plugin, PluginConfig config)
+            internal WeaponProgression(KillaDome plugin, PluginConfig config)
             {
                 _plugin = plugin;
                 _config = config;
@@ -1012,7 +1012,7 @@ namespace Oxide.Plugins
         {
             private KillaDome _plugin;
             
-            public VFXManager(KillaDome plugin)
+            internal VFXManager(KillaDome plugin)
             {
                 _plugin = plugin;
             }
@@ -1032,7 +1032,7 @@ namespace Oxide.Plugins
         {
             private KillaDome _plugin;
             
-            public SFXManager(KillaDome plugin)
+            internal SFXManager(KillaDome plugin)
             {
                 _plugin = plugin;
             }
@@ -1056,7 +1056,7 @@ namespace Oxide.Plugins
             private AttachmentSystem _attachmentSystem;
             private WeaponProgression _weaponProgression;
             
-            public ForgeStationSystem(KillaDome plugin, PluginConfig config, BloodTokenEconomy economy, 
+            internal ForgeStationSystem(KillaDome plugin, PluginConfig config, BloodTokenEconomy economy, 
                 AttachmentSystem attachmentSystem, WeaponProgression weaponProgression)
             {
                 _plugin = plugin;
@@ -1105,7 +1105,7 @@ namespace Oxide.Plugins
             private KillaDome _plugin;
             private PluginConfig _config;
             
-            public BloodTokenEconomy(KillaDome plugin, PluginConfig config)
+            internal BloodTokenEconomy(KillaDome plugin, PluginConfig config)
             {
                 _plugin = plugin;
                 _config = config;
@@ -1149,7 +1149,7 @@ namespace Oxide.Plugins
             private PluginConfig _config;
             private BloodTokenEconomy _economy;
             
-            public StoreAPI(KillaDome plugin, PluginConfig config, BloodTokenEconomy economy)
+            internal StoreAPI(KillaDome plugin, PluginConfig config, BloodTokenEconomy economy)
             {
                 _plugin = plugin;
                 _config = config;
@@ -1197,7 +1197,7 @@ namespace Oxide.Plugins
             private PluginConfig _config;
             private string _dataDirectory;
             
-            public SaveManager(KillaDome plugin, PluginConfig config)
+            internal SaveManager(KillaDome plugin, PluginConfig config)
             {
                 _plugin = plugin;
                 _config = config;
@@ -1271,7 +1271,7 @@ namespace Oxide.Plugins
             private KillaDome _plugin;
             private Dictionary<ulong, RateLimiter> _rateLimiters = new Dictionary<ulong, RateLimiter>();
             
-            public AntiExploit(KillaDome plugin)
+            internal AntiExploit(KillaDome plugin)
             {
                 _plugin = plugin;
             }
@@ -1304,7 +1304,7 @@ namespace Oxide.Plugins
             private int _maxActions;
             private Queue<DateTime> _actions = new Queue<DateTime>();
             
-            public RateLimiter(int maxActionsPerSecond)
+            internal RateLimiter(int maxActionsPerSecond)
             {
                 _maxActions = maxActionsPerSecond;
             }
@@ -1339,7 +1339,7 @@ namespace Oxide.Plugins
             private KillaDome _plugin;
             private Dictionary<string, int> _eventCounts = new Dictionary<string, int>();
             
-            public TelemetrySystem(KillaDome plugin)
+            internal TelemetrySystem(KillaDome plugin)
             {
                 _plugin = plugin;
             }
