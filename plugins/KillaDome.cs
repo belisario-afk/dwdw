@@ -267,7 +267,7 @@ namespace Oxide.Plugins
             }
         }
         
-        public PlayerSession GetSession(ulong steamId)
+        internal PlayerSession GetSession(ulong steamId)
         {
             _activeSessions.TryGetValue(steamId, out var session);
             return session;
