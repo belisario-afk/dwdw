@@ -422,6 +422,41 @@ namespace Oxide.Plugins
         
         #endregion
         
+        #region UI Console Commands
+        
+        [ConsoleCommand("killadome.close")]
+        private void CmdUIClose(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            _lobbyUI.DestroyUI(player);
+        }
+        
+        [ConsoleCommand("killadome.tab")]
+        private void CmdUITab(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null || !arg.HasArgs(1)) return;
+            
+            string tab = arg.Args[0];
+            _lobbyUI.ShowLobbyUI(player);
+            
+            // Tab-specific content would be shown here
+            LogDebug($"Player {player.displayName} opened tab: {tab}");
+        }
+        
+        [ConsoleCommand("killadome.joinqueue")]
+        private void CmdUIJoinQueue(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            
+            _domeManager.AddToQueue(player.userID);
+            SendReply(player, "You have joined the queue!");
+        }
+        
+        #endregion
+        
         #region Data Models
         
         internal class PlayerSession
@@ -718,37 +753,6 @@ namespace Oxide.Plugins
             public void DestroyUI(BasePlayer player)
             {
                 CuiHelper.DestroyUi(player, UI_MAIN);
-            }
-            
-            [ConsoleCommand("killadome.close")]
-            private void CmdClose(ConsoleSystem.Arg arg)
-            {
-                var player = arg.Player();
-                if (player == null) return;
-                DestroyUI(player);
-            }
-            
-            [ConsoleCommand("killadome.tab")]
-            private void CmdTab(ConsoleSystem.Arg arg)
-            {
-                var player = arg.Player();
-                if (player == null || !arg.HasArgs(1)) return;
-                
-                string tab = arg.Args[0];
-                ShowLobbyUI(player);
-                
-                // Tab-specific content would be shown here
-                _plugin.LogDebug($"Player {player.displayName} opened tab: {tab}");
-            }
-            
-            [ConsoleCommand("killadome.joinqueue")]
-            private void CmdJoinQueue(ConsoleSystem.Arg arg)
-            {
-                var player = arg.Player();
-                if (player == null) return;
-                
-                _plugin._domeManager.AddToQueue(player.userID);
-                _plugin.SendReply(player, "You have joined the queue!");
             }
         }
         
