@@ -1,0 +1,44 @@
+{
+  "SteamID": 76561198000000000,
+  "Loadouts": [
+    {
+      "Name": "Default",
+      "Primary": "ak47",
+      "Secondary": "pistol",
+      "PrimaryAttachments": {
+        "barrel": "silencer",
+        "mag": "extended_mag",
+        "optic": "reflex"
+      },
+      "SecondaryAttachments": {},
+      "Skins": {
+        "primarySkin": "neon_serpent_v2"
+      },
+      "Lethal": "grenade",
+      "Tactical": "smoke",
+      "Perks": ["speed_boost", "fast_reload"]
+    }
+  ],
+  "WeaponLevels": {
+    "ak47": 6,
+    "m249": 2,
+    "pistol": 3
+  },
+  "AttachmentLevels": {
+    "silencer": 3,
+    "extended_mag": 2,
+    "reflex": 1
+  },
+  "OwnedSkins": [
+    "neon_serpent_v2",
+    "firestorm_set",
+    "arctic_camo",
+    "gold_rush"
+  ],
+  "Tokens": 1234,
+  "IsVIP": true,
+  "LastUpdated": "2025-11-20T17:00:00Z",
+  "TotalKills": 45,
+  "TotalDeaths": 23,
+  "MatchesPlayed": 12
+}

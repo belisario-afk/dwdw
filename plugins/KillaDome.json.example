@@ -1,0 +1,21 @@
+{
+  "Lobby Spawn Position": {
+    "x": 0.0,
+    "y": 100.0,
+    "z": 0.0
+  },
+  "Arena Spawn Position": {
+    "x": 0.0,
+    "y": 100.0,
+    "z": 500.0
+  },
+  "Starting Blood Tokens": 500,
+  "Tokens Per Kill": 10,
+  "Enable Tebex Integration": false,
+  "Tebex Secret Key": "YOUR_SECRET_KEY_HERE",
+  "Max Weapon Level": 10,
+  "Max Attachment Level": 5,
+  "UI Update Throttle MS": 100,
+  "Auto Save Interval Seconds": 300.0,
+  "Enable Debug Logging": false
+}
