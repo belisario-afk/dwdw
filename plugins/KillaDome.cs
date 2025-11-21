@@ -454,6 +454,104 @@ namespace Oxide.Plugins
             SendReply(player, "You have joined the queue!");
         }
         
+        [ConsoleCommand("killadome.weapon.prev")]
+        private void CmdWeaponPrev(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null || !arg.HasArgs(1)) return;
+            
+            if (!_antiExploit.CheckRateLimit(player.userID, "ui_action"))
+            {
+                SendReply(player, "Please slow down!");
+                return;
+            }
+            
+            string slot = arg.Args[0]; // "primary" or "secondary"
+            CycleWeapon(player, slot, -1);
+            _lobbyUI.ShowLobbyUIWithTab(player, "loadouts");
+        }
+        
+        [ConsoleCommand("killadome.weapon.next")]
+        private void CmdWeaponNext(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null || !arg.HasArgs(1)) return;
+            
+            if (!_antiExploit.CheckRateLimit(player.userID, "ui_action"))
+            {
+                SendReply(player, "Please slow down!");
+                return;
+            }
+            
+            string slot = arg.Args[0]; // "primary" or "secondary"
+            CycleWeapon(player, slot, 1);
+            _lobbyUI.ShowLobbyUIWithTab(player, "loadouts");
+        }
+        
+        [ConsoleCommand("killadome.purchase")]
+        private void CmdPurchase(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null || !arg.HasArgs(2)) return;
+            
+            if (!_antiExploit.CheckRateLimit(player.userID, "purchase"))
+            {
+                SendReply(player, "Please slow down!");
+                return;
+            }
+            
+            string itemId = arg.Args[0];
+            if (!int.TryParse(arg.Args[1], out int cost))
+            {
+                SendReply(player, "Invalid cost");
+                return;
+            }
+            
+            if (_storeAPI.PurchaseItem(player.userID, itemId, cost))
+            {
+                SendReply(player, $"Successfully purchased {itemId}!");
+                _saveManager.SavePlayerProfile(GetSession(player.userID).Profile);
+                _lobbyUI.ShowLobbyUIWithTab(player, "store");
+            }
+            else
+            {
+                SendReply(player, "Insufficient tokens or purchase failed!");
+            }
+        }
+        
+        #endregion
+        
+        #region Helper Methods
+        
+        private void CycleWeapon(BasePlayer player, string slot, int direction)
+        {
+            var session = GetSession(player.userID);
+            if (session == null || session.Profile.Loadouts.Count == 0) return;
+            
+            var loadout = session.Profile.Loadouts[0];
+            string[] availableWeapons = { "ak47", "m249", "pistol" }; // Available weapons
+            
+            string currentWeapon = slot == "primary" ? loadout.Primary : loadout.Secondary;
+            int currentIndex = Array.IndexOf(availableWeapons, currentWeapon);
+            
+            if (currentIndex == -1) currentIndex = 0;
+            
+            int newIndex = (currentIndex + direction + availableWeapons.Length) % availableWeapons.Length;
+            string newWeapon = availableWeapons[newIndex];
+            
+            if (slot == "primary")
+            {
+                loadout.Primary = newWeapon;
+            }
+            else
+            {
+                loadout.Secondary = newWeapon;
+            }
+            
+            _saveManager.SavePlayerProfile(session.Profile);
+            LogDebug($"Player {player.displayName} changed {slot} weapon to {newWeapon}");
+        }
+        
         #endregion
         
         #region Data Models
@@ -782,46 +880,90 @@ namespace Oxide.Plugins
                     RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
                 }, UI_TAB_CONTAINER);
                 
-                // Weapon slots
-                container.Add(new CuiLabel
-                {
-                    Text = { Text = "PRIMARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleLeft },
-                    RectTransform = { AnchorMin = "0.15 0.6", AnchorMax = "0.4 0.65" }
-                }, UI_TAB_CONTAINER);
-                
-                container.Add(new CuiPanel
-                {
-                    Image = { Color = "0.2 0.2 0.2 1" },
-                    RectTransform = { AnchorMin = "0.15 0.5", AnchorMax = "0.4 0.58" }
-                }, UI_TAB_CONTAINER);
-                
-                container.Add(new CuiLabel
-                {
-                    Text = { Text = "SECONDARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleLeft },
-                    RectTransform = { AnchorMin = "0.15 0.4", AnchorMax = "0.4 0.45" }
-                }, UI_TAB_CONTAINER);
-                
-                container.Add(new CuiPanel
-                {
-                    Image = { Color = "0.2 0.2 0.2 1" },
-                    RectTransform = { AnchorMin = "0.15 0.3", AnchorMax = "0.4 0.38" }
-                }, UI_TAB_CONTAINER);
-                
-                // Attachment preview
-                container.Add(new CuiLabel
-                {
-                    Text = { Text = "ATTACHMENTS", FontSize = 16, Align = TextAnchor.MiddleLeft },
-                    RectTransform = { AnchorMin = "0.55 0.6", AnchorMax = "0.85 0.65" }
-                }, UI_TAB_CONTAINER);
-                
                 var session = _plugin.GetSession(player.userID);
                 if (session != null && session.Profile.Loadouts.Count > 0)
                 {
                     var loadout = session.Profile.Loadouts[0];
+                    
+                    // PRIMARY WEAPON SECTION
                     container.Add(new CuiLabel
                     {
-                        Text = { Text = $"Primary: {loadout.Primary}", FontSize = 14, Align = TextAnchor.MiddleLeft },
-                        RectTransform = { AnchorMin = "0.55 0.5", AnchorMax = "0.85 0.55" }
+                        Text = { Text = "PRIMARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.15 0.65", AnchorMax = "0.4 0.7" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Primary weapon display panel
+                    container.Add(new CuiPanel
+                    {
+                        Image = { Color = "0.2 0.2 0.2 1" },
+                        RectTransform = { AnchorMin = "0.15 0.45", AnchorMax = "0.4 0.63" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Current primary weapon text
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = loadout.Primary.ToUpper(), FontSize = 18, Align = TextAnchor.MiddleCenter, Color = "0 1 0 1" },
+                        RectTransform = { AnchorMin = "0.15 0.45", AnchorMax = "0.4 0.63" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // PREV button for primary
+                    container.Add(new CuiButton
+                    {
+                        Button = { Command = "killadome.weapon.prev primary", Color = "0.3 0.3 0.3 1" },
+                        Text = { Text = "◄ PREV", FontSize = 12, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.15 0.38", AnchorMax = "0.25 0.43" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // NEXT button for primary
+                    container.Add(new CuiButton
+                    {
+                        Button = { Command = "killadome.weapon.next primary", Color = "0.3 0.3 0.3 1" },
+                        Text = { Text = "NEXT ►", FontSize = 12, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.3 0.38", AnchorMax = "0.4 0.43" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // SECONDARY WEAPON SECTION
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "SECONDARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.55 0.65", AnchorMax = "0.85 0.7" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Secondary weapon display panel
+                    container.Add(new CuiPanel
+                    {
+                        Image = { Color = "0.2 0.2 0.2 1" },
+                        RectTransform = { AnchorMin = "0.55 0.45", AnchorMax = "0.85 0.63" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Current secondary weapon text
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = loadout.Secondary.ToUpper(), FontSize = 18, Align = TextAnchor.MiddleCenter, Color = "0 1 0 1" },
+                        RectTransform = { AnchorMin = "0.55 0.45", AnchorMax = "0.85 0.63" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // PREV button for secondary
+                    container.Add(new CuiButton
+                    {
+                        Button = { Command = "killadome.weapon.prev secondary", Color = "0.3 0.3 0.3 1" },
+                        Text = { Text = "◄ PREV", FontSize = 12, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.55 0.38", AnchorMax = "0.65 0.43" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // NEXT button for secondary
+                    container.Add(new CuiButton
+                    {
+                        Button = { Command = "killadome.weapon.next secondary", Color = "0.3 0.3 0.3 1" },
+                        Text = { Text = "NEXT ►", FontSize = 12, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.75 0.38", AnchorMax = "0.85 0.43" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Info section
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "Use PREV/NEXT buttons to cycle through weapons", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
+                        RectTransform = { AnchorMin = "0.2 0.25", AnchorMax = "0.8 0.3" }
                     }, UI_TAB_CONTAINER);
                 }
             }
@@ -834,41 +976,61 @@ namespace Oxide.Plugins
                     RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
                 }, UI_TAB_CONTAINER);
                 
-                container.Add(new CuiLabel
-                {
-                    Text = { Text = "Purchase weapons, skins, and upgrades", FontSize = 16, Align = TextAnchor.MiddleCenter },
-                    RectTransform = { AnchorMin = "0.2 0.6", AnchorMax = "0.8 0.7" }
-                }, UI_TAB_CONTAINER);
-                
-                // Sample store items
-                string[] items = { "AK-47 Skin - 500 Tokens", "Extended Mag - 300 Tokens", "Reflex Sight - 250 Tokens" };
-                for (int i = 0; i < items.Length; i++)
-                {
-                    float yMin = 0.45f - (i * 0.12f);
-                    float yMax = yMin + 0.08f;
-                    
-                    container.Add(new CuiPanel
-                    {
-                        Image = { Color = "0.2 0.2 0.2 1" },
-                        RectTransform = { AnchorMin = $"0.2 {yMin}", AnchorMax = $"0.8 {yMax}" }
-                    }, UI_TAB_CONTAINER);
-                    
-                    container.Add(new CuiLabel
-                    {
-                        Text = { Text = items[i], FontSize = 14, Align = TextAnchor.MiddleCenter },
-                        RectTransform = { AnchorMin = $"0.2 {yMin}", AnchorMax = $"0.8 {yMax}" }
-                    }, UI_TAB_CONTAINER);
-                }
-                
                 var session = _plugin.GetSession(player.userID);
                 if (session != null)
                 {
                     container.Add(new CuiLabel
                     {
                         Text = { Text = $"Your Tokens: {session.Profile.Tokens}", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0 1 0 1" },
-                        RectTransform = { AnchorMin = "0.3 0.1", AnchorMax = "0.7 0.15" }
+                        RectTransform = { AnchorMin = "0.3 0.72", AnchorMax = "0.7 0.77" }
                     }, UI_TAB_CONTAINER);
                 }
+                
+                // Store items with prices and purchase buttons
+                var storeItems = new[]
+                {
+                    new { Name = "AK-47 Skin", Cost = 500, Id = "skin_ak47_neon" },
+                    new { Name = "Extended Mag", Cost = 300, Id = "att_extended_mag" },
+                    new { Name = "Reflex Sight", Cost = 250, Id = "att_reflex_sight" },
+                    new { Name = "Silencer", Cost = 400, Id = "att_silencer" }
+                };
+                
+                for (int i = 0; i < storeItems.Length; i++)
+                {
+                    var item = storeItems[i];
+                    float yMin = 0.60f - (i * 0.12f);
+                    float yMax = yMin + 0.08f;
+                    
+                    // Item panel
+                    container.Add(new CuiPanel
+                    {
+                        Image = { Color = "0.2 0.2 0.2 1" },
+                        RectTransform = { AnchorMin = $"0.2 {yMin}", AnchorMax = $"0.8 {yMax}" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Item name and price
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = $"{item.Name} - {item.Cost} Tokens", FontSize = 14, Align = TextAnchor.MiddleLeft },
+                        RectTransform = { AnchorMin = $"0.22 {yMin}", AnchorMax = $"0.6 {yMax}" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    // Purchase button
+                    string buttonColor = (session != null && session.Profile.Tokens >= item.Cost) ? "0.2 0.8 0.2 1" : "0.5 0.2 0.2 1";
+                    container.Add(new CuiButton
+                    {
+                        Button = { Command = $"killadome.purchase {item.Id} {item.Cost}", Color = buttonColor },
+                        Text = { Text = "BUY", FontSize = 12, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = $"0.65 {yMin + 0.01f}", AnchorMax = $"0.78 {yMax - 0.01f}" }
+                    }, UI_TAB_CONTAINER);
+                }
+                
+                // Info text
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Click BUY to purchase items with Blood Tokens", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
+                    RectTransform = { AnchorMin = "0.2 0.08", AnchorMax = "0.8 0.12" }
+                }, UI_TAB_CONTAINER);
             }
             
             private void ShowStatsTab(CuiElementContainer container, BasePlayer player)
