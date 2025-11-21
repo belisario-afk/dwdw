@@ -438,10 +438,9 @@ namespace Oxide.Plugins
             var player = arg.Player();
             if (player == null || !arg.HasArgs(1)) return;
             
-            string tab = arg.Args[0];
-            _lobbyUI.ShowLobbyUI(player);
+            string tab = arg.Args[0].ToLower();
+            _lobbyUI.ShowLobbyUIWithTab(player, tab);
             
-            // Tab-specific content would be shown here
             LogDebug($"Player {player.displayName} opened tab: {tab}");
         }
         
@@ -659,6 +658,11 @@ namespace Oxide.Plugins
             
             public void ShowLobbyUI(BasePlayer player)
             {
+                ShowLobbyUIWithTab(player, "play");
+            }
+            
+            public void ShowLobbyUIWithTab(BasePlayer player, string tab)
+            {
                 DestroyUI(player);
                 
                 var container = new CuiElementContainer();
@@ -700,8 +704,28 @@ namespace Oxide.Plugins
                     RectTransform = { AnchorMin = "0.1 0.15", AnchorMax = "0.9 0.75" }
                 }, UI_MAIN, UI_TAB_CONTAINER);
                 
-                // Default to Play tab
-                ShowPlayTab(container, player);
+                // Show appropriate tab content
+                switch (tab.ToLower())
+                {
+                    case "play":
+                        ShowPlayTab(container, player);
+                        break;
+                    case "loadouts":
+                        ShowLoadoutsTab(container, player);
+                        break;
+                    case "store":
+                        ShowStoreTab(container, player);
+                        break;
+                    case "stats":
+                        ShowStatsTab(container, player);
+                        break;
+                    case "settings":
+                        ShowSettingsTab(container, player);
+                        break;
+                    default:
+                        ShowPlayTab(container, player);
+                        break;
+                }
                 
                 CuiHelper.AddUi(player, container);
             }
@@ -748,6 +772,185 @@ namespace Oxide.Plugins
                         RectTransform = { AnchorMin = "0.3 0.3", AnchorMax = "0.7 0.35" }
                     }, UI_TAB_CONTAINER);
                 }
+            }
+            
+            private void ShowLoadoutsTab(CuiElementContainer container, BasePlayer player)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "LOADOUT EDITOR", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" },
+                    RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
+                }, UI_TAB_CONTAINER);
+                
+                // Weapon slots
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "PRIMARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleLeft },
+                    RectTransform = { AnchorMin = "0.15 0.6", AnchorMax = "0.4 0.65" }
+                }, UI_TAB_CONTAINER);
+                
+                container.Add(new CuiPanel
+                {
+                    Image = { Color = "0.2 0.2 0.2 1" },
+                    RectTransform = { AnchorMin = "0.15 0.5", AnchorMax = "0.4 0.58" }
+                }, UI_TAB_CONTAINER);
+                
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "SECONDARY WEAPON", FontSize = 16, Align = TextAnchor.MiddleLeft },
+                    RectTransform = { AnchorMin = "0.15 0.4", AnchorMax = "0.4 0.45" }
+                }, UI_TAB_CONTAINER);
+                
+                container.Add(new CuiPanel
+                {
+                    Image = { Color = "0.2 0.2 0.2 1" },
+                    RectTransform = { AnchorMin = "0.15 0.3", AnchorMax = "0.4 0.38" }
+                }, UI_TAB_CONTAINER);
+                
+                // Attachment preview
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "ATTACHMENTS", FontSize = 16, Align = TextAnchor.MiddleLeft },
+                    RectTransform = { AnchorMin = "0.55 0.6", AnchorMax = "0.85 0.65" }
+                }, UI_TAB_CONTAINER);
+                
+                var session = _plugin.GetSession(player.userID);
+                if (session != null && session.Profile.Loadouts.Count > 0)
+                {
+                    var loadout = session.Profile.Loadouts[0];
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = $"Primary: {loadout.PrimaryWeapon}", FontSize = 14, Align = TextAnchor.MiddleLeft },
+                        RectTransform = { AnchorMin = "0.55 0.5", AnchorMax = "0.85 0.55" }
+                    }, UI_TAB_CONTAINER);
+                }
+            }
+            
+            private void ShowStoreTab(CuiElementContainer container, BasePlayer player)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "STORE", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" },
+                    RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
+                }, UI_TAB_CONTAINER);
+                
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Purchase weapons, skins, and upgrades", FontSize = 16, Align = TextAnchor.MiddleCenter },
+                    RectTransform = { AnchorMin = "0.2 0.6", AnchorMax = "0.8 0.7" }
+                }, UI_TAB_CONTAINER);
+                
+                // Sample store items
+                string[] items = { "AK-47 Skin - 500 Tokens", "Extended Mag - 300 Tokens", "Reflex Sight - 250 Tokens" };
+                for (int i = 0; i < items.Length; i++)
+                {
+                    float yMin = 0.45f - (i * 0.12f);
+                    float yMax = yMin + 0.08f;
+                    
+                    container.Add(new CuiPanel
+                    {
+                        Image = { Color = "0.2 0.2 0.2 1" },
+                        RectTransform = { AnchorMin = $"0.2 {yMin}", AnchorMax = $"0.8 {yMax}" }
+                    }, UI_TAB_CONTAINER);
+                    
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = items[i], FontSize = 14, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = $"0.2 {yMin}", AnchorMax = $"0.8 {yMax}" }
+                    }, UI_TAB_CONTAINER);
+                }
+                
+                var session = _plugin.GetSession(player.userID);
+                if (session != null)
+                {
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = $"Your Tokens: {session.Profile.Tokens}", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0 1 0 1" },
+                        RectTransform = { AnchorMin = "0.3 0.1", AnchorMax = "0.7 0.15" }
+                    }, UI_TAB_CONTAINER);
+                }
+            }
+            
+            private void ShowStatsTab(CuiElementContainer container, BasePlayer player)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "YOUR STATS", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" },
+                    RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
+                }, UI_TAB_CONTAINER);
+                
+                var session = _plugin.GetSession(player.userID);
+                if (session != null)
+                {
+                    var profile = session.Profile;
+                    
+                    string[] stats = 
+                    {
+                        $"Kills: {profile.Kills}",
+                        $"Deaths: {profile.Deaths}",
+                        $"K/D Ratio: {(profile.Deaths > 0 ? ((float)profile.Kills / profile.Deaths).ToString("F2") : profile.Kills.ToString())}",
+                        $"Blood Tokens: {profile.Tokens}",
+                        $"Matches Played: {profile.MatchesPlayed}",
+                        $"VIP Status: {(profile.IsVIP ? "YES" : "NO")}"
+                    };
+                    
+                    for (int i = 0; i < stats.Length; i++)
+                    {
+                        float yPos = 0.65f - (i * 0.08f);
+                        container.Add(new CuiLabel
+                        {
+                            Text = { Text = stats[i], FontSize = 16, Align = TextAnchor.MiddleLeft },
+                            RectTransform = { AnchorMin = $"0.25 {yPos}", AnchorMax = $"0.75 {yPos + 0.06f}" }
+                        }, UI_TAB_CONTAINER);
+                    }
+                }
+                else
+                {
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "No stats available", FontSize = 16, Align = TextAnchor.MiddleCenter },
+                        RectTransform = { AnchorMin = "0.3 0.5", AnchorMax = "0.7 0.6" }
+                    }, UI_TAB_CONTAINER);
+                }
+            }
+            
+            private void ShowSettingsTab(CuiElementContainer container, BasePlayer player)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "SETTINGS", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" },
+                    RectTransform = { AnchorMin = "0.3 0.8", AnchorMax = "0.7 0.9" }
+                }, UI_TAB_CONTAINER);
+                
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Plugin Settings", FontSize = 18, Align = TextAnchor.MiddleLeft },
+                    RectTransform = { AnchorMin = "0.2 0.6", AnchorMax = "0.8 0.65" }
+                }, UI_TAB_CONTAINER);
+                
+                string[] settings = 
+                {
+                    "UI Update Throttle: 100ms",
+                    "Auto-Save Interval: 5 minutes",
+                    "Max Weapon Level: 10",
+                    "Max Attachment Level: 5"
+                };
+                
+                for (int i = 0; i < settings.Length; i++)
+                {
+                    float yPos = 0.5f - (i * 0.08f);
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = settings[i], FontSize = 14, Align = TextAnchor.MiddleLeft },
+                        RectTransform = { AnchorMin = $"0.25 {yPos}", AnchorMax = $"0.75 {yPos + 0.06f}" }
+                    }, UI_TAB_CONTAINER);
+                }
+                
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Configure via KillaDome.json", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
+                    RectTransform = { AnchorMin = "0.3 0.15", AnchorMax = "0.7 0.2" }
+                }, UI_TAB_CONTAINER);
             }
             
             public void DestroyUI(BasePlayer player)
