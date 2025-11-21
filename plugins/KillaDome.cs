@@ -55,7 +55,7 @@ namespace Oxide.Plugins
         
         #region Configuration
         
-        private class PluginConfig
+        internal class PluginConfig
         {
             [JsonProperty("Lobby Spawn Position")]
             public Vector3 LobbySpawnPosition { get; set; } = new Vector3(0, 100, 0);
