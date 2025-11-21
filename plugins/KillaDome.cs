@@ -460,7 +460,7 @@ namespace Oxide.Plugins
             var player = arg.Player();
             if (player == null || !arg.HasArgs(1)) return;
             
-            if (!_antiExploit.CheckRateLimit(player.userID, "ui_action"))
+            if (!_antiExploit.CheckRateLimit(player.userID))
             {
                 SendReply(player, "Please slow down!");
                 return;
@@ -477,7 +477,7 @@ namespace Oxide.Plugins
             var player = arg.Player();
             if (player == null || !arg.HasArgs(1)) return;
             
-            if (!_antiExploit.CheckRateLimit(player.userID, "ui_action"))
+            if (!_antiExploit.CheckRateLimit(player.userID))
             {
                 SendReply(player, "Please slow down!");
                 return;
@@ -494,7 +494,7 @@ namespace Oxide.Plugins
             var player = arg.Player();
             if (player == null || !arg.HasArgs(2)) return;
             
-            if (!_antiExploit.CheckRateLimit(player.userID, "purchase"))
+            if (!_antiExploit.CheckRateLimit(player.userID))
             {
                 SendReply(player, "Please slow down!");
                 return;
