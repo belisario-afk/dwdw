@@ -507,15 +507,28 @@ namespace Oxide.Plugins
                 return;
             }
             
+            var session = GetSession(player.userID);
+            if (session == null)
+            {
+                SendReply(player, "Session not found!");
+                return;
+            }
+            
+            if (session.Profile.Tokens < cost)
+            {
+                SendReply(player, $"Insufficient tokens! You need {cost} but only have {session.Profile.Tokens}.");
+                return;
+            }
+            
             if (_storeAPI.PurchaseItem(player.userID, itemId, cost))
             {
                 SendReply(player, $"Successfully purchased {itemId}!");
-                _saveManager.SavePlayerProfile(GetSession(player.userID).Profile);
+                _saveManager.SavePlayerProfile(session.Profile);
                 _lobbyUI.ShowLobbyUIWithTab(player, "store");
             }
             else
             {
-                SendReply(player, "Insufficient tokens or purchase failed!");
+                SendReply(player, "Purchase failed!");
             }
         }
         
@@ -881,9 +894,30 @@ namespace Oxide.Plugins
                 }, UI_TAB_CONTAINER);
                 
                 var session = _plugin.GetSession(player.userID);
-                if (session != null && session.Profile.Loadouts.Count > 0)
+                if (session == null)
                 {
-                    var loadout = session.Profile.Loadouts[0];
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "Loading profile...", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "1 0 0 1" },
+                        RectTransform = { AnchorMin = "0.3 0.5", AnchorMax = "0.7 0.6" }
+                    }, UI_TAB_CONTAINER);
+                    return;
+                }
+                
+                // Ensure loadout exists
+                if (session.Profile.Loadouts.Count == 0)
+                {
+                    session.Profile.Loadouts.Add(new Loadout
+                    {
+                        Name = "Default",
+                        Primary = "ak47",
+                        Secondary = "pistol",
+                        PrimaryAttachments = new Dictionary<string, string>(),
+                        Skins = new Dictionary<string, string>()
+                    });
+                }
+                
+                var loadout = session.Profile.Loadouts[0];
                     
                     // PRIMARY WEAPON SECTION
                     container.Add(new CuiLabel
@@ -959,13 +993,12 @@ namespace Oxide.Plugins
                         RectTransform = { AnchorMin = "0.75 0.38", AnchorMax = "0.85 0.43" }
                     }, UI_TAB_CONTAINER);
                     
-                    // Info section
-                    container.Add(new CuiLabel
-                    {
-                        Text = { Text = "Use PREV/NEXT buttons to cycle through weapons", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
-                        RectTransform = { AnchorMin = "0.2 0.25", AnchorMax = "0.8 0.3" }
-                    }, UI_TAB_CONTAINER);
-                }
+                // Info section
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Use PREV/NEXT buttons to cycle through weapons", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
+                    RectTransform = { AnchorMin = "0.2 0.25", AnchorMax = "0.8 0.3" }
+                }, UI_TAB_CONTAINER);
             }
             
             private void ShowStoreTab(CuiElementContainer container, BasePlayer player)
