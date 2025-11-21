@@ -500,4 +500,4 @@ oxide.grant user YourName killadome.admin
 
 **🎮 KillaDome - Transforming Rust Servers Into COD-Style Arenas**
 
-*Version 1.0.0 | Production Ready | 3,327 Lines of Code*
+*Version 1.0.0 | Production Ready | 3,497 Lines of Code*

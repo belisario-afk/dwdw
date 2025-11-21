@@ -753,7 +753,8 @@ namespace Oxide.Plugins
         }
         
         #endregion
-
+        
+        #region Module: LoadoutEditor
         
         internal class LoadoutEditor
         {
